@@ -1,18 +1,18 @@
-# Python generated files
+# Python 缓存
 __pycache__/
 *.py[cod]
 
-# Virtual environments
+# 虚拟环境
 .venv/
 venv/
 env/
 
-# Secret configuration
+# API Key 和本地配置
 .env
 .env.*
 !.env.example
 
-# PyCharm
+# PyCharm 本地设置
 .idea/
 
 # Test and analysis caches
