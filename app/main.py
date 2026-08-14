@@ -1,50 +1,38 @@
-import os
+from langchain_core.messages import HumanMessage
 
-from dotenv import load_dotenv
-from langchain_deepseek import ChatDeepSeek
-
-
-def create_model() -> ChatDeepSeek:
-    """Create and configure the DeepSeek chat model."""
-    load_dotenv()
-
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    model_name = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
-
-    if not api_key:
-        raise RuntimeError(
-            "DEEPSEEK_API_KEY is missing. "
-            "Please configure it in the .env file."
-        )
-
-    return ChatDeepSeek(
-        model=model_name,
-        temperature=0,
-        max_retries=2,
-    )
+from app.graph import build_graph
 
 
 def main() -> None:
-    """Send a test message to DeepSeek."""
-    model = create_model()
+    """运行 LifePilot 命令行应用程序."""
 
-    messages = [
-        (
-            "system",
-            "你是 LifePilot，一个简洁、可靠的中文个人助理。",
-        ),
-        (
-            "human",
-            "请用一句话介绍你自己，并告诉我你当前能做什么。",
-        ),
-    ]
+    graph = build_graph()
 
-    print("正在请求 DeepSeek，请稍候……")
+    # 用户提示词输入
+    user_input = input("你：").strip()    # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
+    if not user_input:
+        print("请输入有效内容。")
+        return
 
-    response = model.invoke(messages)
+    print("\nLifePilot 正在思考……")
+
+    result = graph.invoke(
+        {
+            "messages": [
+                HumanMessage(content=user_input),
+            ],
+        }
+    )
+
+    final_message = result["messages"][-1]
 
     print("\nLifePilot：")
-    print(response.content)
+    print(final_message.content)
+
+    print(
+        f"\n[调试信息] "
+        f"状态中共有 {len(result['messages'])} 条消息。"
+    )
 
 
 if __name__ == "__main__":
