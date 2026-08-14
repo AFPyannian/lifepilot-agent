@@ -6,7 +6,7 @@ A personal assistant Agent built with LangGraph and LangChain.
 
 - [x] Python environment initialized
 - [x] Project structure created
-- [ ] LangGraph workflow
+- [x] LangGraph workflow
 - [ ] Tool calling
 - [ ] Persistent memory
 - [ ] Personal knowledge base

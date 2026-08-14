@@ -4,35 +4,53 @@ from app.graph import build_graph
 
 
 def main() -> None:
-    """运行 LifePilot 命令行应用程序."""
-
+    """Run the LifePilot command-line application."""
     graph = build_graph()
 
-    # 用户提示词输入
-    user_input = input("你：").strip()    # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
-    if not user_input:
-        print("请输入有效内容。")
-        return
-
-    print("\nLifePilot 正在思考……")
-
-    result = graph.invoke(
-        {
-            "messages": [
-                HumanMessage(content=user_input),
-            ],
+    config = {
+        "configurable": {
+            "thread_id": "local-user-1",
         }
-    )
+    }
 
-    final_message = result["messages"][-1]
+    print("LifePilot 已启动。")
+    print("输入 exit、quit 或 退出，可以结束程序。")
 
-    print("\nLifePilot：")
-    print(final_message.content)
+    while True:
+        user_input = input("\n你：").strip()
 
-    print(
-        f"\n[调试信息] "
-        f"状态中共有 {len(result['messages'])} 条消息。"
-    )
+        if user_input.lower() in {
+            "exit",
+            "quit",
+            "退出",
+        }:
+            print("LifePilot：再见！")
+            break
+
+        if not user_input:
+            print("LifePilot：请输入有效内容。")
+            continue
+
+        print("\nLifePilot 正在思考……")
+
+        result = graph.invoke(
+            {
+                "messages": [
+                    HumanMessage(content=user_input),
+                ],
+            },
+            config=config,
+        )
+
+        final_message = result["messages"][-1]
+
+        print("\nLifePilot：")
+        print(final_message.content)
+
+        print(
+            f"\n[调试信息] "
+            f"当前会话共有 {len(result['messages'])} 条消息。"
+        )
 
 
 if __name__ == "__main__":

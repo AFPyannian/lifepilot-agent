@@ -7,6 +7,7 @@ from langchain_core.messages import (
     AnyMessage,
     SystemMessage,
 )
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
@@ -74,5 +75,9 @@ def build_graph():
         END,
     )
 
+    checkpointer = InMemorySaver()
+
     # 编译图: 根据定义好的节点和边，生成一个真正可以执行的工作流对象。
-    return builder.compile()
+    return builder.compile(
+        checkpointer=checkpointer,
+    )
