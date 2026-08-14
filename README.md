@@ -11,7 +11,7 @@ A personal assistant Agent built with LangGraph and LangChain.
 - [ ] Persistent memory
 - [ ] Personal knowledge base
 - [ ] Web interface
-- [ ] Automated tests
+- [x] Automated tests
 - [ ] Docker deployment
 
 ## Python version

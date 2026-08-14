@@ -1,7 +1,7 @@
 """
 定义 LangGraph 状态、节点和边。
 """
-from typing import Annotated
+from typing import Annotated, Protocol
 
 from langchain_core.messages import (
     AnyMessage,
@@ -24,6 +24,12 @@ SYSTEM_PROMPT = """
 3. 不要声称自己已经执行了实际未执行的操作。""".strip()         # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
 
 
+class ChatModel(Protocol):
+    """Interface required by the assistant node."""
+
+    def invoke(self, messages: list[AnyMessage]) -> AnyMessage:
+        """Return a model response."""
+        ...
 
 class AssistantState(TypedDict):
     """定义状态：工作流执行期间共享的数据（图中所有节点共享的数据）"""
@@ -32,14 +38,22 @@ class AssistantState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]
 
 
-def build_graph():
+def build_graph(model: ChatModel | None = None, checkpointer=None):
     """构建整个 LifePilot 工作流，并最终返回一个可以执行的 graph。"""
 
-    # 实例化模型
-    model = create_model()
+    active_model = (
+        model
+        if model is not None
+        else create_model()
+    )
 
+    active_checkpointer = (
+        checkpointer
+        if checkpointer is not None
+        else InMemorySaver()
+    )
 
-    def assistant_node(state: AssistantState,) -> dict:     # 函数写法含义: 接收参数state(AssistantState类型), 返回一个字典.
+    def assistant_node(state: AssistantState) -> dict:     # 函数写法含义: 接收参数state(AssistantState类型), 返回一个字典.
         """创建节点: 接收当前状态,执行某项任务,返回需要更新的部分状态.(调用语言模型，并返回模型的回复)"""
 
         # 组装将要传递给模型的提示词消息。
@@ -49,7 +63,7 @@ def build_graph():
         ]
 
         # 将提示词消息传递给模型，并调用模型得到回复。
-        response = model.invoke(messages_for_model)
+        response = active_model.invoke(messages_for_model)
 
         # 函数定义返回字典，因此在这里包装为字典类型。
         return {"messages": [response]}
@@ -75,9 +89,7 @@ def build_graph():
         END,
     )
 
-    checkpointer = InMemorySaver()
-
     # 编译图: 根据定义好的节点和边，生成一个真正可以执行的工作流对象。
     return builder.compile(
-        checkpointer=checkpointer,
+        checkpointer=active_checkpointer,
     )
