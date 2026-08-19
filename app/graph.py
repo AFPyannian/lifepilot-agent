@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, Protocol
 
 from langchain_core.messages import (
@@ -14,7 +15,18 @@ from langgraph.prebuilt import (
 from typing_extensions import TypedDict
 
 from app.model import create_model
-from app.tools import TODO_TOOLS
+from app.repositories.todo_repository import (
+    TodoRepository,
+)
+from app.tools import create_todo_tools
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+DEFAULT_DATABASE_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "lifepilot.db"
+)
 
 # 系统提示词。优先级最高
 SYSTEM_PROMPT = """
@@ -24,10 +36,12 @@ SYSTEM_PROMPT = """
 1. 优先使用清晰、简洁的中文回答。
 2. 不确定的信息要明确说明不确定。
 3. 不要声称自己已经执行了实际未执行的操作。
-4. 用户要求添加或查看待办事项时，必须调用对应工具。
+4. 用户要求添加、查看、完成或删除待办时，必须调用对应工具。
 5. 必须根据工具返回的真实结果回答，不能编造执行结果。
-6. 当前不支持修改、删除或完成待办；遇到这些要求时应明确说明。
-""".strip()         # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
+6. 完成或删除待办需要使用待办ID。
+7. 用户没有提供ID时，应先帮助用户查看列表或询问具体任务。
+8. 删除是永久操作，只有用户明确要求删除时才能执行。
+""".strip()
 
 
 
@@ -53,7 +67,12 @@ class AssistantState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]     # 状态合并规则: 节点返回新消息时，直接追加到旧消息后边。
 
 
-def build_graph(model: ChatModel | None = None, checkpointer=None):
+def build_graph(
+    model: ChatModel | None = None,
+    checkpointer=None,
+    todo_repository: TodoRepository | None = None,
+    owner_id: str = "local-user",
+):
     """
     构建整个 LifePilot 工作流，并最终返回一个可以执行的 graph。
         第一个参数：model 可以是 ChatModel，也可以是 None，默认为None。
@@ -74,9 +93,20 @@ def build_graph(model: ChatModel | None = None, checkpointer=None):
         else InMemorySaver()
     )
 
+    active_repository = (
+        todo_repository
+        if todo_repository is not None
+        else TodoRepository(DEFAULT_DATABASE_PATH)
+    )
+
+    todo_tools = create_todo_tools(
+        repository=active_repository,
+        owner_id=owner_id,
+    )
+
     # 为模型绑定工具，让模型知道有哪些工具
     model_with_tools = active_model.bind_tools(
-        TODO_TOOLS
+        todo_tools
     )
 
     def assistant_node(state: AssistantState) -> dict:
@@ -109,7 +139,7 @@ def build_graph(model: ChatModel | None = None, checkpointer=None):
     builder.add_node(
         "tools",
         ToolNode(
-            TODO_TOOLS,
+            todo_tools,
             handle_tool_errors=True,
         ),
     )

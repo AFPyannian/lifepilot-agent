@@ -5,6 +5,9 @@ from langchain_core.messages import (
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.graph import build_graph
+from app.repositories.todo_repository import (
+    TodoRepository,
+)
 
 
 class FakeChatModel:
@@ -30,16 +33,22 @@ class FakeChatModel:
         )
 
 
-def build_test_graph():
+def build_test_graph(tmp_path):
     """Create a graph without calling a real API."""
+    repository = TodoRepository(
+        tmp_path / "graph-todos.db"
+    )
+
     return build_graph(
         model=FakeChatModel(),
         checkpointer=InMemorySaver(),
+        todo_repository=repository,
+        owner_id="test-user",
     )
 
 
-def test_graph_returns_ai_response():
-    graph = build_test_graph()
+def test_graph_returns_ai_response(tmp_path):
+    graph = build_test_graph(tmp_path)
 
     config = {
         "configurable": {
@@ -67,8 +76,8 @@ def test_graph_returns_ai_response():
     )
 
 
-def test_same_thread_keeps_history():
-    graph = build_test_graph()
+def test_same_thread_keeps_history(tmp_path):
+    graph = build_test_graph(tmp_path)
 
     config = {
         "configurable": {
@@ -101,8 +110,8 @@ def test_same_thread_keeps_history():
     )
 
 
-def test_different_threads_are_isolated():
-    graph = build_test_graph()
+def test_different_threads_are_isolated(tmp_path):
+    graph = build_test_graph(tmp_path)
 
     first_config = {
         "configurable": {
