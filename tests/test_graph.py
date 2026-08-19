@@ -10,6 +10,10 @@ from app.graph import build_graph
 class FakeChatModel:
     """A deterministic model used only in tests."""
 
+    def bind_tools(self, tools):
+        """Accept tools without using them."""
+        return self
+
     def invoke(self, messages):
         human_messages = [
             message

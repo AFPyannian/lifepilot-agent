@@ -1,6 +1,3 @@
-"""
-定义 LangGraph 状态、节点和边。
-"""
 from typing import Annotated, Protocol
 
 from langchain_core.messages import (
@@ -10,71 +7,111 @@ from langchain_core.messages import (
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.prebuilt import (
+    ToolNode,
+    tools_condition,
+)
 from typing_extensions import TypedDict
 
 from app.model import create_model
+from app.tools import TODO_TOOLS
 
-# 系统提示词是优先级最高的。
+# 系统提示词。优先级最高
 SYSTEM_PROMPT = """
 你是 LifePilot，一个简洁、可靠的中文个人助理。
 
 请遵守以下要求：
 1. 优先使用清晰、简洁的中文回答。
 2. 不确定的信息要明确说明不确定。
-3. 不要声称自己已经执行了实际未执行的操作。""".strip()         # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
+3. 不要声称自己已经执行了实际未执行的操作。
+4. 用户要求添加或查看待办事项时，必须调用对应工具。
+5. 必须根据工具返回的真实结果回答，不能编造执行结果。
+6. 当前不支持修改、删除或完成待办；遇到这些要求时应明确说明。
+""".strip()         # .strip() 会去掉用户输入内容开头和结尾的空格、换行符等空白字符。
+
 
 
 class ChatModel(Protocol):
-    """Interface required by the assistant node."""
+    """
+    定义模型接口：任何对象只要拥有符合要求的方法，就可以作为模型传入。(依赖注入)
+        "..."是 Ellipsis对象，只定义方法应该长什么样，不编写具体实现。
+    """
 
-    def invoke(self, messages: list[AnyMessage]) -> AnyMessage:
-        """Return a model response."""
+    # 定义模型必须支持 bind_tools() 方法
+    def bind_tools(self, tools):
         ...
+
+    # 定义模型必须支持 invoke() 方法————传入一组消息列表，并返回一个消息对象。
+    def invoke(self, messages: list[AnyMessage]) -> AnyMessage:
+        ...
+
 
 class AssistantState(TypedDict):
     """定义状态：工作流执行期间共享的数据（图中所有节点共享的数据）"""
 
-    # 状态合并规则（决定节点返回新消息时，替换旧消息还是追加到旧消息后边）
-    messages: Annotated[list[AnyMessage], add_messages]
+    # 消息字段。Annotated[原始消息, 附加信息]
+    messages: Annotated[list[AnyMessage], add_messages]     # 状态合并规则: 节点返回新消息时，直接追加到旧消息后边。
 
 
 def build_graph(model: ChatModel | None = None, checkpointer=None):
-    """构建整个 LifePilot 工作流，并最终返回一个可以执行的 graph。"""
+    """
+    构建整个 LifePilot 工作流，并最终返回一个可以执行的 graph。
+        第一个参数：model 可以是 ChatModel，也可以是 None，默认为None。
+        第二个参数：
+    """
 
+    # 确定实际使用模型
     active_model = (
         model
         if model is not None
         else create_model()
     )
 
+    # 确定实际使用状态保存器
     active_checkpointer = (
         checkpointer
         if checkpointer is not None
         else InMemorySaver()
     )
 
-    def assistant_node(state: AssistantState) -> dict:     # 函数写法含义: 接收参数state(AssistantState类型), 返回一个字典.
+    # 为模型绑定工具，让模型知道有哪些工具
+    model_with_tools = active_model.bind_tools(
+        TODO_TOOLS
+    )
+
+    def assistant_node(state: AssistantState) -> dict:
         """创建节点: 接收当前状态,执行某项任务,返回需要更新的部分状态.(调用语言模型，并返回模型的回复)"""
 
-        # 组装将要传递给模型的提示词消息。
+        # 组装模型消息(组装后的消息会被传递给模型)
         messages_for_model = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            *state["messages"],
+            SystemMessage(content=SYSTEM_PROMPT),       # 系统消息
+            *state["messages"],                         # 当前状态中的所有历史消息
         ]
 
-        # 将提示词消息传递给模型，并调用模型得到回复。
-        response = active_model.invoke(messages_for_model)
+        # 调用模型(将提示词消息传递给模型，并得到模型回复)
+        response = model_with_tools.invoke(
+            messages_for_model
+        )
 
-        # 函数定义返回字典，因此在这里包装为字典类型。
+        # 返回部分状态(加入到状态中的模型新返回消息)
         return {"messages": [response]}
 
     # 创建工作流图(是一个空图,等待添加节点)
     builder = StateGraph(AssistantState)
 
-    # 添加节点(添加到节点到上边创建的空图中)
+    # 注册节点(添加到节点到上边创建的空图中)
     builder.add_node(
         "assistant",        # 将要添加的节点命名为"assistant"
         assistant_node,     # 将要添加的节点函数
+    )
+
+    # 注册节点()
+    builder.add_node(
+        "tools",
+        ToolNode(
+            TODO_TOOLS,
+            handle_tool_errors=True,
+        ),
     )
 
     # 添加边(工作流开始 → assistant)
@@ -83,13 +120,19 @@ def build_graph(model: ChatModel | None = None, checkpointer=None):
         "assistant",
     )
 
-    # 添加边(assistant → 工作流结束)
-    builder.add_edge(
+    # 条件边(assistant → 如果需要工具就执行,不需要就结束)
+    builder.add_conditional_edges(
         "assistant",
-        END,
+        tools_condition,
     )
 
-    # 编译图: 根据定义好的节点和边，生成一个真正可以执行的工作流对象。
+    # 添加边(assistant → tools)(工具执行后必须再交给模型)
+    builder.add_edge(
+        "tools",
+        "assistant",
+    )
+
+    # 编译工作流: 根据定义好的节点和边，生成一个真正可以执行的工作流对象。
     return builder.compile(
         checkpointer=active_checkpointer,
     )

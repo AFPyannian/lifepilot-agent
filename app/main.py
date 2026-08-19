@@ -1,4 +1,7 @@
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import (
+    HumanMessage,
+    ToolMessage,
+)
 
 from app.graph import build_graph
 
@@ -47,10 +50,23 @@ def main() -> None:
         print("\nLifePilot：")
         print(final_message.content)
 
+        tool_message_count = sum(
+            isinstance(message, ToolMessage)
+            for message in result["messages"]
+        )
+
         print(
             f"\n[调试信息] "
-            f"当前会话共有 {len(result['messages'])} 条消息。"
+            f"当前会话共有 {len(result['messages'])} 条消息，"
+            f"累计执行工具 {tool_message_count} 次。"
         )
+        # for index, message in enumerate(result["messages"], start=1):
+        #     print(f"\n第 {index} 条")
+        #     print("类型：", type(message).__name__)
+        #     print("内容：", message.content)
+        #
+        #     if hasattr(message, "tool_calls") and message.tool_calls:
+        #         print("工具调用：", message.tool_calls)
 
 
 if __name__ == "__main__":
