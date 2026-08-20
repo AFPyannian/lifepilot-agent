@@ -13,6 +13,9 @@ A personal assistant Agent built with LangGraph and LangChain.
 - [ ] Web interface
 - [x] Automated tests
 - [ ] Docker deployment
+- [x] Centralized configuration validation
+- [x] Secret-safe logging
+- [x] Unified exception handling
 
 ## Python version
 

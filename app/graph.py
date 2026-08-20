@@ -6,7 +6,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import (
     ToolNode,
@@ -14,15 +14,17 @@ from langgraph.prebuilt import (
 )
 from typing_extensions import TypedDict
 
+from app.config import Settings, get_settings
+from app.exceptions import (
+    LifePilotError,
+    ModelServiceError,
+)
 from app.model import create_model
 from app.repositories.todo_repository import (
     TodoRepository,
 )
 from app.tools import create_todo_tools
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-DEFAULT_DATABASE_PATH = (PROJECT_ROOT / "data" / "lifepilot.db")
 
 # 系统提示词。优先级最高
 SYSTEM_PROMPT = """
@@ -74,6 +76,7 @@ class AssistantState(TypedDict):
 
 
 def build_graph(
+    settings: Settings | None = None,
     model: ChatModel | None = None,
     checkpointer=None,
     todo_repository: TodoRepository | None = None,
@@ -85,11 +88,21 @@ def build_graph(
         第二个参数：
     """
 
+    active_settings = settings
+
+    def require_settings() -> Settings:
+        nonlocal active_settings
+
+        if active_settings is None:
+            active_settings = get_settings()
+
+        return active_settings
+
     # 确定实际使用模型
     active_model = (
         model
         if model is not None
-        else create_model()
+        else create_model(require_settings())
     )
 
     # 确定实际使用状态保存器
@@ -102,7 +115,13 @@ def build_graph(
     active_repository = (
         todo_repository
         if todo_repository is not None
-        else TodoRepository(DEFAULT_DATABASE_PATH)
+        else TodoRepository(require_settings().todo_database_path)
+    )
+
+    active_owner_id = (
+        owner_id
+        if owner_id is not None
+        else require_settings().owner_id
     )
 
     todo_tools = create_todo_tools(
@@ -125,9 +144,16 @@ def build_graph(
         ]
 
         # 调用模型(将提示词消息传递给模型，并得到模型回复)
-        response = model_with_tools.invoke(
-            messages_for_model
-        )
+        try:
+            response = model_with_tools.invoke(
+                messages_for_model
+            )
+        except LifePilotError:
+            raise
+        except Exception as error:
+            raise ModelServiceError(
+                "DeepSeek invocation failed."
+            ) from error
 
         # 返回部分状态(加入到状态中的模型新返回消息)
         return {"messages": [response]}
@@ -146,7 +172,7 @@ def build_graph(
         "tools",
         ToolNode(
             todo_tools,
-            handle_tool_errors=True,
+            handle_tool_errors=("工具暂时无法执行，请稍后重试。"),
         ),
     )
 
