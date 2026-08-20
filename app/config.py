@@ -48,7 +48,7 @@ class Settings(BaseSettings):
         min_length=1,
     )
 
-    todo_database_path: Path = (
+    app_database_path: Path = (
         PROJECT_ROOT
         / "data"
         / "lifepilot.db"
@@ -99,7 +99,7 @@ class Settings(BaseSettings):
         return str(value).upper()
 
     @field_validator(
-        "todo_database_path",
+        "app_database_path",
         "checkpoint_database_path",
         "log_file_path",
         mode="after",

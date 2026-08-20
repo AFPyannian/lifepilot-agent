@@ -5,6 +5,9 @@ from langchain_core.messages import (
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.graph import build_graph
+from app.repositories.note_repository import (
+    NoteRepository,
+)
 from app.repositories.todo_repository import (
     TodoRepository,
 )
@@ -35,14 +38,17 @@ class FakeChatModel:
 
 def build_test_graph(tmp_path):
     """Create a graph without calling a real API."""
-    repository = TodoRepository(
-        tmp_path / "graph-todos.db"
-    )
+    database_path = tmp_path / "application.db"
 
     return build_graph(
         model=FakeChatModel(),
         checkpointer=InMemorySaver(),
-        todo_repository=repository,
+        todo_repository=TodoRepository(
+            database_path
+        ),
+        note_repository=NoteRepository(
+            database_path
+        ),
         owner_id="test-user",
     )
 

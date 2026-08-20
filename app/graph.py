@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Annotated, Protocol
 
 from langchain_core.messages import (
@@ -20,35 +19,35 @@ from app.exceptions import (
     ModelServiceError,
 )
 from app.model import create_model
+from app.repositories.note_repository import (
+    NoteRepository,
+)
 from app.repositories.todo_repository import (
     TodoRepository,
 )
-from app.tools import create_todo_tools
+from app.tools import (
+    create_note_tools,
+    create_todo_tools,
+)
 
 
 # 系统提示词。优先级最高
 SYSTEM_PROMPT = """
 你是 LifePilot，一个简洁、可靠的中文个人助理。
 
-系统使用 LangGraph checkpoint 将每个 thread_id 的会话状态持久化
-到 SQLite。即使程序关闭并重新启动，只要用户继续使用相同的
-thread_id，你仍然可以根据已恢复的历史消息回答。
-
-请区分以下概念：
-1. 会话历史：当前 thread_id 下的聊天消息，由 SQLite checkpoint 自动保存。
-2. 长期记忆：从聊天中提取出的用户身份、偏好和长期事实，需要使用专门的长期记忆存储功能。
-3. 待办事项：用户将来需要完成、提醒或跟踪的任务，必须通过待办工具管理。
-
 请遵守以下要求：
 1. 优先使用清晰、简洁的中文回答。
 2. 不确定的信息要明确说明不确定。
 3. 不要声称自己已经执行了实际未执行的操作。
-4. 用户要求添加、查看、完成或删除待办时，必须调用对应工具。
-5. 如果“用户的描述类似代办事项，但没有明确说明保存为代办事项”。此时，必须询问用户是否要保存为代办事项。
-6. 必须根据工具返回的真实结果回答，不能编造执行结果。
-7. 完成或删除待办需要使用待办ID。
-8. 用户没有提供ID时，应先帮助用户查看列表或询问具体任务。
-9. 删除是永久操作，只有用户明确要求删除时才能执行。
+4. 用户要求添加、查看、完成或删除待办时，必须调用待办工具。
+5. 用户要求保存、查看、搜索、修改或删除笔记时，必须调用笔记工具。
+6. 如果“用户的描述类似待办事项，但没有明确说明保存为待办”。此时，必须询问用户是否要保存为待办。
+7. 如果“用户的描述类似事情陈述，但没有明确说明保存为笔记”。此时，必须询问用户是否要保存为笔记。
+8. 必须根据工具返回的真实结果回答，不能编造执行结果。
+9. 完成或删除待办需要使用待办ID。
+10.查看、修改或删除特定笔记需要使用笔记ID。
+11. 用户没有提供必要ID时，应先查看列表、搜索或询问用户。
+12. 删除是永久操作，只有用户明确要求删除时才能执行。
 """.strip()
 
 
@@ -80,6 +79,7 @@ def build_graph(
     model: ChatModel | None = None,
     checkpointer=None,
     todo_repository: TodoRepository | None = None,
+    note_repository: NoteRepository | None = None,
     owner_id: str = "local-user",
 ):
     """
@@ -112,10 +112,20 @@ def build_graph(
         else InMemorySaver()
     )
 
-    active_repository = (
+    active_todo_repository = (
         todo_repository
         if todo_repository is not None
-        else TodoRepository(require_settings().todo_database_path)
+        else TodoRepository(
+            require_settings().app_database_path
+        )
+    )
+
+    active_note_repository = (
+        note_repository
+        if note_repository is not None
+        else NoteRepository(
+            require_settings().app_database_path
+        )
     )
 
     active_owner_id = (
@@ -125,13 +135,23 @@ def build_graph(
     )
 
     todo_tools = create_todo_tools(
-        repository=active_repository,
-        owner_id=owner_id,
+        repository=active_todo_repository,
+        owner_id=active_owner_id,
     )
+
+    note_tools = create_note_tools(
+        repository=active_note_repository,
+        owner_id=active_owner_id,
+    )
+
+    all_tools = [
+        *todo_tools,
+        *note_tools,
+    ]
 
     # 为模型绑定工具，让模型知道有哪些工具
     model_with_tools = active_model.bind_tools(
-        todo_tools
+        all_tools
     )
 
     def assistant_node(state: AssistantState) -> dict:
@@ -171,7 +191,7 @@ def build_graph(
     builder.add_node(
         "tools",
         ToolNode(
-            todo_tools,
+            all_tools,
             handle_tool_errors=("工具暂时无法执行，请稍后重试。"),
         ),
     )

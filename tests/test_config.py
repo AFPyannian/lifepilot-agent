@@ -21,8 +21,8 @@ def test_settings_read_environment(
         "debug",
     )
     monkeypatch.setenv(
-        "TODO_DATABASE_PATH",
-        str(tmp_path / "todos.db"),
+        "APP_DATABASE_PATH",
+        str(tmp_path / "application.db"),
     )
 
     settings = Settings(_env_file=None)
@@ -35,8 +35,8 @@ def test_settings_read_environment(
     assert settings.log_level == "DEBUG"
 
     assert (
-        settings.todo_database_path
-        == tmp_path / "todos.db"
+            settings.app_database_path
+            == tmp_path / "application.db"
     )
 
 

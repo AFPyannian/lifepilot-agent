@@ -8,6 +8,9 @@ from app.checkpointing import (
     open_sqlite_checkpointer,
 )
 from app.graph import build_graph
+from app.repositories.note_repository import (
+    NoteRepository,
+)
 from app.repositories.todo_repository import (
     TodoRepository,
 )
@@ -37,17 +40,20 @@ class FakeChatModel:
         )
 
 
-def test_in_memory_checkpointer_still_works(
-    tmp_path,
-):
-    repository = TodoRepository(
-        tmp_path / "todos.db"
+def test_in_memory_checkpointer_still_works(tmp_path):
+    application_database_path = (
+            tmp_path / "application.db"
     )
 
     graph = build_graph(
         model=FakeChatModel(),
         checkpointer=InMemorySaver(),
-        todo_repository=repository,
+        todo_repository=TodoRepository(
+            application_database_path
+        ),
+        note_repository=NoteRepository(
+            application_database_path
+        ),
         owner_id="test-user",
     )
 
@@ -83,9 +89,8 @@ def test_sqlite_checkpointer_survives_reopen(
         / "checkpoints.db"
     )
 
-    todo_database_path = (
-        tmp_path
-        / "todos.db"
+    application_database_path = (
+            tmp_path / "application.db"
     )
 
     config = {
@@ -101,7 +106,10 @@ def test_sqlite_checkpointer_survives_reopen(
             model=FakeChatModel(),
             checkpointer=first_checkpointer,
             todo_repository=TodoRepository(
-                todo_database_path
+                application_database_path
+            ),
+            note_repository=NoteRepository(
+                application_database_path
             ),
             owner_id="test-user",
         )
@@ -129,7 +137,10 @@ def test_sqlite_checkpointer_survives_reopen(
             model=FakeChatModel(),
             checkpointer=second_checkpointer,
             todo_repository=TodoRepository(
-                todo_database_path
+                application_database_path
+            ),
+            note_repository=NoteRepository(
+                application_database_path
             ),
             owner_id="test-user",
         )
