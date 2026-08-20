@@ -1,0 +1,156 @@
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+)
+from langgraph.checkpoint.memory import InMemorySaver
+
+from app.checkpointing import (
+    open_sqlite_checkpointer,
+)
+from app.graph import build_graph
+from app.repositories.todo_repository import (
+    TodoRepository,
+)
+
+
+class FakeChatModel:
+    """A deterministic model used without an API."""
+
+    def bind_tools(self, tools):
+        """Accept tools without using them."""
+        return self
+
+    def invoke(self, messages):
+        """Return the number of user messages seen."""
+        human_messages = [
+            message
+            for message in messages
+            if isinstance(message, HumanMessage)
+        ]
+
+        return AIMessage(
+            content=(
+                f"已看到 "
+                f"{len(human_messages)} "
+                f"条用户消息"
+            )
+        )
+
+
+def test_in_memory_checkpointer_still_works(
+    tmp_path,
+):
+    repository = TodoRepository(
+        tmp_path / "todos.db"
+    )
+
+    graph = build_graph(
+        model=FakeChatModel(),
+        checkpointer=InMemorySaver(),
+        todo_repository=repository,
+        owner_id="test-user",
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": "memory-thread",
+        }
+    }
+
+    result = graph.invoke(
+        {
+            "messages": [
+                HumanMessage(content="第一条消息"),
+            ],
+        },
+        config=config,
+    )
+
+    assert len(result["messages"]) == 2
+
+
+def test_sqlite_checkpointer_survives_reopen(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "LANGGRAPH_STRICT_MSGPACK",
+        "true",
+    )
+
+    checkpoint_path = (
+        tmp_path
+        / "checkpoints.db"
+    )
+
+    todo_database_path = (
+        tmp_path
+        / "todos.db"
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": "persistent-thread",
+        }
+    }
+
+    with open_sqlite_checkpointer(
+        checkpoint_path
+    ) as first_checkpointer:
+        first_graph = build_graph(
+            model=FakeChatModel(),
+            checkpointer=first_checkpointer,
+            todo_repository=TodoRepository(
+                todo_database_path
+            ),
+            owner_id="test-user",
+        )
+
+        first_result = first_graph.invoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content="第一条消息"
+                    ),
+                ],
+            },
+            config=config,
+        )
+
+        assert (
+            len(first_result["messages"])
+            == 2
+        )
+
+    with open_sqlite_checkpointer(
+        checkpoint_path
+    ) as second_checkpointer:
+        second_graph = build_graph(
+            model=FakeChatModel(),
+            checkpointer=second_checkpointer,
+            todo_repository=TodoRepository(
+                todo_database_path
+            ),
+            owner_id="test-user",
+        )
+
+        second_result = second_graph.invoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content="第二条消息"
+                    ),
+                ],
+            },
+            config=config,
+        )
+
+        assert (
+            len(second_result["messages"])
+            == 4
+        )
+
+        assert (
+            second_result["messages"][-1].content
+            == "已看到 2 条用户消息"
+        )
