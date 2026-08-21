@@ -14,6 +14,9 @@ from app.repositories.note_repository import (
 from app.repositories.todo_repository import (
     TodoRepository,
 )
+from app.repositories.user_memory_repository import (
+    UserMemoryRepository,
+)
 
 
 class FakeChatModel:
@@ -52,6 +55,9 @@ def test_in_memory_checkpointer_still_works(tmp_path):
             application_database_path
         ),
         note_repository=NoteRepository(
+            application_database_path
+        ),
+        memory_repository=UserMemoryRepository(
             application_database_path
         ),
         owner_id="test-user",
@@ -111,6 +117,9 @@ def test_sqlite_checkpointer_survives_reopen(
             note_repository=NoteRepository(
                 application_database_path
             ),
+            memory_repository=UserMemoryRepository(
+                application_database_path
+            ),
             owner_id="test-user",
         )
 
@@ -140,6 +149,9 @@ def test_sqlite_checkpointer_survives_reopen(
                 application_database_path
             ),
             note_repository=NoteRepository(
+                application_database_path
+            ),
+            memory_repository=UserMemoryRepository(
                 application_database_path
             ),
             owner_id="test-user",

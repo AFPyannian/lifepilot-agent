@@ -19,6 +19,10 @@ A personal assistant Agent built with LangGraph and LangChain.
 - [x] Persistent note CRUD
 - [x] Keyword note search
 - [x] Note Agent tools
+- [x] Structured user profile
+- [x] Cross-thread long-term memory
+- [x] User-scoped memory isolation
+- [x] Explicit memory consent rules
 
 ## Python version
 
@@ -41,3 +45,9 @@ Python 3.11
 - Search notes
 - Update note
 - Delete note
+
+## Memory architecture
+
+- Short-term memory: LangGraph checkpoints scoped by thread ID
+- Long-term memory: SQLite user memories scoped by owner ID
+- Business data: SQLite todos and notes

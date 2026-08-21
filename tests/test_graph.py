@@ -11,6 +11,9 @@ from app.repositories.note_repository import (
 from app.repositories.todo_repository import (
     TodoRepository,
 )
+from app.repositories.user_memory_repository import (
+    UserMemoryRepository,
+)
 
 
 class FakeChatModel:
@@ -47,6 +50,9 @@ def build_test_graph(tmp_path):
             database_path
         ),
         note_repository=NoteRepository(
+            database_path
+        ),
+        memory_repository=UserMemoryRepository(
             database_path
         ),
         owner_id="test-user",
