@@ -3,16 +3,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import (
-    Field,
-    SecretStr,
-    ValidationError,
-    field_validator,
-)
-from pydantic_settings import (
-    BaseSettings,
-    SettingsConfigDict,
-)
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.exceptions import ConfigurationError
 
@@ -21,7 +13,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    """Validated application configuration."""
+    """经过校验的应用配置"""
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -31,35 +23,21 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
+    # DeepSeek模型的API Key配置
     deepseek_api_key: SecretStr
+    # DeepSeek模型的名称
+    deepseek_model: str = Field(default="deepseek-v4-flash", min_length=1)
 
-    deepseek_model: str = Field(
-        default="deepseek-v4-flash",
-        min_length=1,
-    )
+    # 当前用户和默认会话
+    owner_id: str = Field(default="local-user", min_length=1)
+    default_thread_id: str = Field(default="main", min_length=1)
 
-    owner_id: str = Field(
-        default="local-user",
-        min_length=1,
-    )
+    # 业务数据库
+    app_database_path: Path = (PROJECT_ROOT / "data" / "lifepilot.db")
+    # 会话数据库
+    checkpoint_database_path: Path = (PROJECT_ROOT / "data" / "checkpoints.db")
 
-    default_thread_id: str = Field(
-        default="main",
-        min_length=1,
-    )
-
-    app_database_path: Path = (
-        PROJECT_ROOT
-        / "data"
-        / "lifepilot.db"
-    )
-
-    checkpoint_database_path: Path = (
-        PROJECT_ROOT
-        / "data"
-        / "checkpoints.db"
-    )
-
+    # 日志配置
     log_level: Literal[
         "DEBUG",
         "INFO",
@@ -68,60 +46,85 @@ class Settings(BaseSettings):
         "CRITICAL",
     ] = "INFO"
 
-    log_file_path: Path = (
-        PROJECT_ROOT
-        / "logs"
-        / "lifepilot.log"
-    )
+    log_file_path: Path = (PROJECT_ROOT / "logs" / "lifepilot.log")
+    log_max_bytes: int = Field(default=1_000_000, gt=0)
+    log_backup_count: int = Field(default=3, ge=1)
 
-    log_max_bytes: int = Field(
-        default=1_000_000,
-        gt=0,
-    )
-
-    log_backup_count: int = Field(
-        default=3,
-        ge=1,
-    )
-
+    # LangGraph配置
     langgraph_strict_msgpack: bool = True
+
+    # 原始文档保存目录
+    knowledge_source_directory: Path = (PROJECT_ROOT / "knowledge_base")
+    # Chroma向量数据库保存目录
+    chroma_persist_directory: Path = (PROJECT_ROOT / "data" / "chroma")
+
+    # 中文Embedding模型
+    embedding_model_name: str = "models/bge-small-zh-v1.5"
+    # 运行Embedding模型的设备
+    embedding_device: Literal["cpu", "cuda"] = "cpu"
+
+    # 每个文本块的最大字符数
+    knowledge_chunk_size: int = Field(default=700, gt=0)
+    # 相邻文本块之间重复保留的字符数
+    knowledge_chunk_overlap: int = Field(default=120, ge=0)
+    # 每次检索返回几个片段
+    knowledge_retrieval_k: int = Field(default=4, gt=0)
+    # 单个知识库文件最大20MB
+    knowledge_max_file_bytes: int = Field(default=20_000_000, gt=0)
 
     @field_validator(
         "log_level",
         mode="before",
     )
     @classmethod
-    def normalize_log_level(
-        cls,
-        value,
-    ) -> str:
-        """Normalize log levels such as info to INFO."""
+    def normalize_log_level(cls, value) -> str:
+        """把info等配置统一转换成INFO"""
         return str(value).upper()
 
     @field_validator(
         "app_database_path",
         "checkpoint_database_path",
         "log_file_path",
+        "knowledge_source_directory",
+        "chroma_persist_directory",
         mode="after",
     )
     @classmethod
-    def resolve_project_path(
-        cls,
-        value: Path,
-    ) -> Path:
-        """Resolve relative paths from the project root."""
+    def resolve_project_path(cls, value: Path) -> Path:
+        """将相对路径转换为基于项目根目录的绝对路径"""
         if value.is_absolute():
             return value
 
-        return (
-            PROJECT_ROOT
-            / value
-        ).resolve()
+        return (PROJECT_ROOT / value).resolve()
+
+    @field_validator(
+        "embedding_model_name",
+        mode="after",
+    )
+    @classmethod
+    def resolve_embedding_model_path(cls, value: str) -> str:
+        """将Embedding模型的相对路径转换为绝对路径"""
+        model_path = Path(value).expanduser()
+
+        if not model_path.is_absolute():
+            model_path = PROJECT_ROOT / model_path
+
+        return str(model_path.resolve())
+
+    @model_validator(mode="after")
+    def validate_knowledge_chunking(self) -> "Settings":
+        """确保文本块重叠长度小于文本块总长度。"""
+        if self.knowledge_chunk_overlap >= self.knowledge_chunk_size:
+            raise ValueError(
+                "knowledge_chunk_overlap 必须小于 knowledge_chunk_size"
+            )
+
+        return self
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Load and cache validated application settings."""
+    """读取并缓存应用配置"""
     try:
         return Settings()
     except ValidationError as error:
@@ -130,10 +133,8 @@ def get_settings() -> Settings:
         ) from error
 
 
-def apply_runtime_environment(
-    settings: Settings,
-) -> None:
-    """Export settings required by third-party libraries."""
+def apply_runtime_environment(settings: Settings) -> None:
+    """向第三方库导出运行时配置"""
     os.environ["LANGGRAPH_STRICT_MSGPACK"] = (
         "true"
         if settings.langgraph_strict_msgpack

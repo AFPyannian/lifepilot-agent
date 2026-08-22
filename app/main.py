@@ -28,8 +28,107 @@ from app.logging_config import (
 logger = logging.getLogger("lifepilot.main")
 
 
+def display_graph_result(
+    result: dict,
+    thread_id: str,
+) -> None:
+    """统一显示并记录一次Graph执行结果。"""
+
+    # 从最新完整状态中取得最后的回答结果
+    messages = result.get("messages", [])
+    if not messages:
+        print(
+            "\nLifePilot：本轮执行已经完成，但没有生成可显示的消息。"
+        )
+        return
+    final_message = messages[-1]
+
+    # 打印最终回答结果
+    print("\nLifePilot：")
+    print(final_message.content)
+
+    # 统计工具消息数量
+    tool_message_count = sum(
+        isinstance(message, ToolMessage)
+        for message in messages
+    )
+
+    # 记录单轮对话完成日志
+    logger.info(
+        "Agent turn completed thread_id=%s messages=%d tools=%d",
+        thread_id,
+        len(messages),
+        tool_message_count,
+    )
+
+
+def has_pending_execution(
+    graph,
+    config: dict,
+) -> bool:
+    """
+    检查当前thread_id是否还有未完成节点。
+
+    例如：
+        assistant已经生成tool_calls
+        但tools节点还没有执行完成
+    """
+    try:
+        snapshot = graph.get_state(
+            config
+        )
+
+        return bool(snapshot.next)
+
+    except Exception:
+        logger.exception(
+            "Failed to inspect pending graph state."
+        )
+
+        # 无法确定时按“仍有未完成任务”处理，
+        # 避免继续追加用户消息
+        return True
+
+
+def resume_pending_execution(
+    graph,
+    config: dict,
+    thread_id: str,
+) -> dict | None:
+    """
+    恢复上一次没有完成的Graph执行。
+
+    graph.invoke(None)表示：
+    不追加新的用户消息，
+    直接从当前checkpoint继续运行。
+    """
+    snapshot = graph.get_state(
+        config
+    )
+
+    if not snapshot.next:
+        return None
+
+    logger.warning(
+        "Pending graph execution detected "
+        "thread_id=%s next_nodes=%s",
+        thread_id,
+        snapshot.next,
+    )
+
+    print(
+        "\n检测到这个会话上一次没有执行完成，"
+        "正在从保存点继续……"
+    )
+
+    return graph.invoke(
+        None,
+        config=config,
+    )
+
+
 def run_chat(graph, thread_id: str) -> None:
-    """负责一次持续性的会话"""
+    """负责一次持续性的可恢复会话"""
 
     # LangGraph配置: checkpointer 利用 thread_id，查找checkpointer保存的对应会话状态。
     config = {
@@ -46,6 +145,64 @@ def run_chat(graph, thread_id: str) -> None:
         thread_id,
     )
 
+    # =====================================
+    # 启动时先恢复上一次没有完成的节点
+    # =====================================
+    try:
+        recovered_result = (
+            resume_pending_execution(
+                graph=graph,
+                config=config,
+                thread_id=thread_id,
+            )
+        )
+
+        if recovered_result is not None:
+            display_graph_result(
+                result=recovered_result,
+                thread_id=thread_id,
+            )
+    except LifePilotError as error:
+        logger.exception(
+            "Pending graph recovery failed "
+            "thread_id=%s",
+            thread_id,
+        )
+
+        print(
+            f"\nLifePilot：{error.user_message}"
+        )
+
+        print(
+            "\n当前会话仍保留在未完成状态。"
+            "请先解决模型或工具故障，"
+            "然后重新启动并继续使用同一个会话ID。"
+        )
+
+        # 不能继续接收输入，否则会再次破坏消息顺序
+        return
+    except Exception:
+        logger.exception(
+            "Unexpected pending graph "
+            "recovery failure thread_id=%s",
+            thread_id,
+        )
+
+        print(
+            "\nLifePilot：恢复上一次执行时"
+            "发生了未预期错误。"
+        )
+
+        print(
+            "为避免损坏会话历史，"
+            "当前会话暂不接受新消息。"
+        )
+
+        return
+
+    # =====================================
+    # 正常聊天循环
+    # =====================================
     while True:
         # 会话的一次输入
         user_input = input("\n你：").strip()
@@ -80,54 +237,61 @@ def run_chat(graph, thread_id: str) -> None:
         except LifePilotError as error:
             # 记录真正的异常日志，供开发者参考
             logger.exception(
-                "Expected application error "
-                "thread_id=%s",
+                "Expected application error thread_id=%s",
                 thread_id,
             )
             # 对用户隐藏内部错误，转而展示友好消息。(防止泄露数据给用户，或输出用户不理解的技术异常)
-            print(
-                f"\nLifePilot：{error.user_message}"
-            )
+            print(f"\nLifePilot：{error.user_message}")
+
+            if has_pending_execution(
+                    graph,
+                    config,
+            ):
+                print(
+                    "\n本轮工作流尚未完成，"
+                    "执行状态已经保存在checkpoint中。"
+                )
+
+                print(
+                    "程序将暂停接收新消息。"
+                    "解决模型或工具问题后，"
+                    "重新启动并输入相同会话ID，"
+                    "程序会自动继续。"
+                )
+
+                # 这里不能continue
+                return
+
+            # 确认Graph已经结束时，才允许继续输入
             continue
         # 未预料的异常
         except Exception:
             logger.exception(
-                "Unexpected Agent error "
-                "thread_id=%s",
+                "Unexpected Agent error thread_id=%s",
                 thread_id,
             )
             print(
-                "\nLifePilot：发生了未预期的错误，"
-                "请稍后重试。"
+                "\nLifePilot：发生了未预期的错误，请稍后重试。"
             )
+
+            if has_pending_execution(
+                    graph,
+                    config,
+            ):
+                print(
+                    "当前工作流仍未完成。"
+                    "为避免破坏工具消息顺序，"
+                    "程序将暂停当前会话。"
+                )
+
+                return
+
             continue
 
-        # 从最新完整状态中取得最后的回答结果
-        final_message = result["messages"][-1]
-
-        # 打印最终回答结果
-        print("\nLifePilot：")
-        print(final_message.content)
-
-        # 统计工具消息数量
-        tool_message_count = sum(
-            isinstance(message, ToolMessage) for message in result["messages"]
+        display_graph_result(
+            result=result,
+            thread_id=thread_id,
         )
-
-        # 记录单轮对话完成日志
-        logger.info(
-            "Agent turn completed thread_id=%s messages=%d tools=%d",
-            thread_id,
-            len(result["messages"]),
-            tool_message_count,
-        )
-
-        # # 打印会话的全部消息数量
-        # print(
-        #     f"\n[调试信息] "
-        #     f"当前会话共有 {len(result['messages'])} 条消息，"
-        #     f"累计执行工具 {tool_message_count} 次。"
-        # )
 
 
 def main() -> None:

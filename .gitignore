@@ -38,3 +38,13 @@ Thumbs.db
 # Application logs
 logs/
 *.log
+
+# Local knowledge documents
+knowledge_base/*
+!knowledge_base/.gitkeep
+
+# Chroma vector database
+data/chroma/
+
+# Local AI models
+models/
