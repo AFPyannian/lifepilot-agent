@@ -4,6 +4,15 @@ from threading import Lock
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.openapi.docs import (
+    get_swagger_ui_html,
+)
+from fastapi.staticfiles import (
+    StaticFiles,
+)
+from swagger_ui_bundle import (
+    swagger_ui_path,
+)
 
 from app.api.knowledge_routes import (
     router as knowledge_router,
@@ -122,7 +131,44 @@ def create_app(
         ),
         version="0.1.0",
         lifespan=lifespan,
+        docs_url=None,
     )
+
+    application.mount(
+        "/docs-assets",
+        StaticFiles(
+            directory=swagger_ui_path
+        ),
+        name="swagger-ui-assets",
+    )
+
+    @application.get(
+        "/docs",
+        include_in_schema=False,
+    )
+    async def custom_swagger_ui():
+        return get_swagger_ui_html(
+            openapi_url=(
+                    application.openapi_url
+                    or "/openapi.json"
+            ),
+            title=(
+                f"{application.title} "
+                "- Swagger UI"
+            ),
+            swagger_js_url=(
+                "/docs-assets/"
+                "swagger-ui-bundle.js"
+            ),
+            swagger_css_url=(
+                "/docs-assets/"
+                "swagger-ui.css"
+            ),
+            swagger_favicon_url=(
+                "/docs-assets/"
+                "favicon-32x32.png"
+            ),
+        )
 
     application.include_router(
         chat_router,
