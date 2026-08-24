@@ -48,3 +48,9 @@ data/chroma/
 
 # Local AI models
 models/
+
+# SQLite runtime files
+*.db-wal
+*.db-shm
+*.sqlite3-wal
+*.sqlite3-shm
