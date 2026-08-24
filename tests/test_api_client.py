@@ -1,0 +1,249 @@
+import httpx
+import pytest
+
+from app.clients import (
+    LifePilotApiClient,
+    LifePilotApiError,
+    iter_sse_events,
+)
+
+
+def test_iter_sse_events() -> None:
+    lines = [
+        "event: start",
+        'data: {"thread_id":"test"}',
+        "",
+        "event: token",
+        'data: {"content":"你好"}',
+        "",
+        "event: done",
+        'data: {"thread_id":"test"}',
+        "",
+    ]
+
+    assert list(iter_sse_events(lines)) == [
+        (
+            "start",
+            '{"thread_id":"test"}',
+        ),
+        (
+            "token",
+            '{"content":"你好"}',
+        ),
+        (
+            "done",
+            '{"thread_id":"test"}',
+        ),
+    ]
+
+
+def test_sse_parser_supports_comments_and_eof() -> None:
+    lines = [
+        ": heartbeat",
+        "event: example",
+        "data: first line",
+        "data: second line",
+    ]
+
+    assert list(iter_sse_events(lines)) == [
+        (
+            "example",
+            "first line\nsecond line",
+        )
+    ]
+
+
+def test_health_check() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert (
+            request.url.path
+            == "/api/v1/health"
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "status": "ok",
+                "service": (
+                    "lifepilot-agent"
+                ),
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    assert client.is_healthy() is True
+
+
+def test_stream_chat_returns_tokens() -> None:
+    sse_body = (
+        "event: start\n"
+        'data: {"thread_id":"test"}\n'
+        "\n"
+        "event: token\n"
+        'data: {"content":"你"}\n'
+        "\n"
+        "event: token\n"
+        'data: {"content":"好"}\n'
+        "\n"
+        "event: done\n"
+        'data: {"thread_id":"test"}\n'
+        "\n"
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert (
+            request.url.path
+            == "/api/v1/chat/stream"
+        )
+
+        return httpx.Response(
+            status_code=200,
+            headers={
+                "content-type": (
+                    "text/event-stream; "
+                    "charset=utf-8"
+                )
+            },
+            text=sse_body,
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    tokens = list(
+        client.stream_chat(
+            message="你好",
+            thread_id="test",
+        )
+    )
+
+    assert tokens == ["你", "好"]
+    assert "".join(tokens) == "你好"
+
+
+def test_stream_chat_raises_sse_error() -> None:
+    sse_body = (
+        "event: start\n"
+        'data: {"thread_id":"test"}\n'
+        "\n"
+        "event: error\n"
+        'data: {"message":"模型暂时不可用"}\n'
+        "\n"
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            headers={
+                "content-type": (
+                    "text/event-stream"
+                )
+            },
+            text=sse_body,
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    with pytest.raises(
+        LifePilotApiError,
+        match="模型暂时不可用",
+    ):
+        list(
+            client.stream_chat(
+                message="你好",
+                thread_id="test",
+            )
+        )
+
+
+def test_stream_chat_detects_incomplete_stream() -> None:
+    sse_body = (
+        "event: start\n"
+        'data: {"thread_id":"test"}\n'
+        "\n"
+        "event: token\n"
+        'data: {"content":"部分回答"}\n'
+        "\n"
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            headers={
+                "content-type": (
+                    "text/event-stream"
+                )
+            },
+            text=sse_body,
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    with pytest.raises(
+        LifePilotApiError,
+        match="流式连接意外中断",
+    ):
+        list(
+            client.stream_chat(
+                message="你好",
+                thread_id="test",
+            )
+        )
+
+
+def test_http_error_uses_safe_detail() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=503,
+            json={
+                "detail": "模型服务暂时不可用。"
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    with pytest.raises(
+        LifePilotApiError,
+        match="模型服务暂时不可用",
+    ):
+        list(
+            client.stream_chat(
+                message="你好",
+                thread_id="test",
+            )
+        )
