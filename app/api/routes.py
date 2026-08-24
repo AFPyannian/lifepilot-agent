@@ -1,5 +1,6 @@
 import logging
 from typing import Any
+from langgraph.types import Command
 
 from fastapi import (
     APIRouter,
@@ -19,12 +20,19 @@ from app.api.execution import (
     resume_pending_execution,
 )
 from app.api.schemas import (
+    ApprovalDecision,
+    ApprovalResumeResponse,
     ChatRequest,
     ChatResponse,
     HealthResponse,
 )
 from app.api.streaming import (
     stream_chat_events,
+)
+from app.api.interrupts import (
+    extract_invoke_interrupt,
+    find_pending_interrupt,
+    normalize_approval_request,
 )
 from app.exceptions import LifePilotError
 
@@ -69,6 +77,25 @@ def chat(
 
     try:
         with graph_lock:
+            # 首先检查当前会话是否已经存在，等待用户处理的人工审批。
+            pending_interrupt = (
+                find_pending_interrupt(
+                    graph=graph,
+                    config=config,
+                )
+            )
+
+            if pending_interrupt is not None:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_409_CONFLICT
+                    ),
+                    detail=(
+                        "当前会话存在等待审批的操作，请先批准或拒绝该操作"
+                    ),
+                )
+
+            # 只有确认不是人工审批中断后，才允许使用旧的自动恢复机制。
             resume_pending_execution(
                 graph=graph,
                 config=config,
@@ -85,13 +112,30 @@ def chat(
                 config=config,
             )
 
+            # 本次执行可能刚刚触发 interrupt()，必须检查结果。
+            invoke_interrupt = (
+                extract_invoke_interrupt(
+                    result
+                )
+            )
+
+            if invoke_interrupt is not None:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_409_CONFLICT
+                    ),
+                    detail=(
+                        "本次操作需要用户审批，请使用流式聊天接口获取"
+                        "审批内容，并通过恢复接口批准或拒绝该操作。"
+                    ),
+                )
+
         reply = extract_latest_ai_reply(
             result.get("messages", [])
         )
 
         logger.info(
-            "Agent API request completed "
-            "thread_id=%s",
+            "Agent API request completed thread_id=%s",
             payload.thread_id,
         )
 
@@ -100,10 +144,13 @@ def chat(
             thread_id=payload.thread_id,
         )
 
+    # 必须单独保留HTTPException。否则上面的409会被下面的通用异常转换成500。
+    except HTTPException:
+        raise
+
     except LifePilotError as error:
         logger.exception(
-            "Expected Agent API error "
-            "thread_id=%s",
+            "Expected Agent API error thread_id=%s",
             payload.thread_id,
         )
 
@@ -117,8 +164,7 @@ def chat(
 
     except Exception as error:
         logger.exception(
-            "Unexpected Agent API error "
-            "thread_id=%s",
+            "Unexpected Agent API error thread_id=%s",
             payload.thread_id,
         )
 
@@ -128,8 +174,7 @@ def chat(
                 .HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "LifePilot 处理请求时"
-                "发生内部错误。"
+                "LifePilot 处理请求时发生内部错误。"
             ),
         ) from error
 
@@ -170,6 +215,139 @@ def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
+@router.post(
+    "/chat/resume",
+    response_model=ApprovalResumeResponse,
+    summary="批准或拒绝待执行操作",
+)
+def resume_chat(
+    payload: ApprovalDecision,
+    request: Request,
+) -> ApprovalResumeResponse:
+    graph, graph_lock = (
+        _get_graph_dependencies(request)
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": payload.thread_id,
+        }
+    }
+
+    try:
+        with graph_lock:
+            existing_interrupt = (
+                find_pending_interrupt(
+                    graph=graph,
+                    config=config,
+                )
+            )
+
+            if existing_interrupt is None:
+                raise HTTPException(
+                    status_code=(
+                        status.HTTP_409_CONFLICT
+                    ),
+                    detail=(
+                        "当前会话没有等待审批的"
+                        "操作。"
+                    ),
+                )
+
+            result = graph.invoke(
+                Command(
+                    resume={
+                        "approved": (
+                            payload.approved
+                        ),
+                    }
+                ),
+                config=config,
+            )
+
+            # 一次请求可能涉及多个危险工具，
+            # 恢复一个后仍可能出现下一个审批。
+            pending_interrupt = (
+                extract_invoke_interrupt(
+                    result
+                )
+            )
+
+            if pending_interrupt is None:
+                pending_interrupt = (
+                    find_pending_interrupt(
+                        graph=graph,
+                        config=config,
+                    )
+                )
+
+        if pending_interrupt is not None:
+            return ApprovalResumeResponse(
+                status="approval_required",
+                thread_id=payload.thread_id,
+                approval_request=(
+                    normalize_approval_request(
+                        pending_interrupt
+                    )
+                ),
+            )
+
+        reply = extract_latest_ai_reply(
+            result.get(
+                "messages",
+                [],
+            )
+        )
+
+        logger.info(
+            "Agent approval resolved "
+            "thread_id=%s approved=%s",
+            payload.thread_id,
+            payload.approved,
+        )
+
+        return ApprovalResumeResponse(
+            status="completed",
+            thread_id=payload.thread_id,
+            reply=reply,
+        )
+
+    except HTTPException:
+        raise
+
+    except LifePilotError as error:
+        logger.exception(
+            "Expected approval resume error "
+            "thread_id=%s",
+            payload.thread_id,
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail=error.user_message,
+        ) from error
+
+    except Exception as error:
+        logger.exception(
+            "Unexpected approval resume error "
+            "thread_id=%s",
+            payload.thread_id,
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "LifePilot 恢复审批操作时"
+                "发生内部错误。"
+            ),
+        ) from error
 
 
 def _get_graph_dependencies(

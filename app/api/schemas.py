@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -76,3 +76,31 @@ class KnowledgeDeleteResponse(BaseModel):
 
     filename: str
     deleted: bool
+
+
+class ApprovalDecision(BaseModel):
+    """批准或拒绝一个中断操作。"""
+
+    thread_id: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    )
+
+    approved: bool
+
+
+class ApprovalResumeResponse(BaseModel):
+    """恢复执行后的结果。"""
+
+    status: Literal[
+        "completed",
+        "approval_required",
+    ]
+
+    thread_id: str
+    reply: str | None = None
+
+    approval_request: (
+        dict[str, Any] | None
+    ) = None

@@ -1,4 +1,5 @@
 from langchain_core.tools import BaseTool, tool
+from langgraph.types import interrupt
 
 from app.repositories.todo_repository import (
     TodoRepository,
@@ -83,14 +84,33 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
 
     @tool
     def delete_todo(todo_id: int) -> str:
-        """永久删除一条待办事项。
-
-        只有用户明确要求删除某条待办时才使用。
-        如果用户没有提供任务ID，应先询问或查看待办列表。
-
+        """
+        功能: 永久删除一条待办事项，执行前必须获得用户审批。
         Args:
             todo_id: 需要删除的待办ID。
         """
+        decision = interrupt(
+            {
+                "kind": "tool_approval",
+                "tool_name": "delete_todo",
+                "message": (
+                    "是否确认删除这个待办事项？"
+                ),
+                "arguments": {
+                    "todo_id": todo_id,
+                },
+            }
+        )
+
+        if (
+                not isinstance(decision, dict)
+                or decision.get("approved")
+                is not True
+        ):
+            return (
+                "用户拒绝删除该待办事项，操作已取消。"
+            )
+
         was_deleted = repository.delete(
             owner_id=owner_id,
             todo_id=todo_id,
@@ -98,8 +118,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
 
         if not was_deleted:
             return (
-                f"未找到 ID={todo_id} 的待办，"
-                "或该待办不属于当前用户。"
+                f"未找到 ID={todo_id} 的待办，或该待办不属于当前用户。"
             )
 
         return f"已删除 ID={todo_id} 的待办。"

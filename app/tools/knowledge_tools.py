@@ -1,4 +1,5 @@
 from langchain_core.tools import BaseTool, tool
+from langgraph.types import interrupt
 
 from app.knowledge import KnowledgeBaseService
 
@@ -88,10 +89,34 @@ def create_knowledge_tools(
     @tool
     def delete_knowledge_document(filename: str) -> str:
         """
-        从个人知识库中删除指定文档的所有文本块。
-
-            这里不会删除knowledge_base目录中的原始文件
+        从个人知识库中删除指定文档的所有文本块，执行前必须获得用户审批。
         """
+        decision = interrupt(
+            {
+                "kind": "tool_approval",
+                "tool_name": (
+                    "delete_knowledge_document"
+                ),
+                "message": (
+                    "是否确认从知识库删除"
+                    "这个文档？"
+                ),
+                "arguments": {
+                    "filename": filename,
+                },
+            }
+        )
+
+        if (
+                not isinstance(decision, dict)
+                or decision.get("approved")
+                is not True
+        ):
+            return (
+                "用户拒绝删除知识库文档，"
+                "操作已取消。"
+            )
+
         deleted = service.delete_source(
             owner_id=owner_id,
             filename=filename,

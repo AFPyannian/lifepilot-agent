@@ -23,24 +23,34 @@ def create_tools(
     }
 
 
-def test_empty_todo_list(tmp_path):
+def test_empty_todo_list(
+    tmp_path,
+):
     tools = create_tools(tmp_path)
 
-    result = tools["list_todos"].invoke({})
+    result = tools[
+        "list_todos"
+    ].invoke({})
 
     assert result == "待办列表为空。"
 
 
-def test_add_and_list_todo(tmp_path):
+def test_add_and_list_todo(
+    tmp_path,
+):
     tools = create_tools(tmp_path)
 
-    add_result = tools["add_todo"].invoke(
+    add_result = tools[
+        "add_todo"
+    ].invoke(
         {
             "task": "学习 SQLite",
         }
     )
 
-    list_result = tools["list_todos"].invoke({})
+    list_result = tools[
+        "list_todos"
+    ].invoke({})
 
     assert (
         add_result
@@ -53,7 +63,9 @@ def test_add_and_list_todo(tmp_path):
     )
 
 
-def test_complete_todo(tmp_path):
+def test_complete_todo(
+    tmp_path,
+):
     tools = create_tools(tmp_path)
 
     tools["add_todo"].invoke(
@@ -70,20 +82,40 @@ def test_complete_todo(tmp_path):
         }
     )
 
-    list_result = tools["list_todos"].invoke({})
+    list_result = tools[
+        "list_todos"
+    ].invoke({})
 
     assert (
         complete_result
-        == "已将 ID=1 的待办标记为完成。"
+        == (
+            "已将 ID=1 的待办"
+            "标记为完成。"
+        )
     )
 
     assert (
         list_result
-        == "ID=1 | 已完成 | 完成数据库练习"
+        == (
+            "ID=1 | 已完成 | "
+            "完成数据库练习"
+        )
     )
 
 
-def test_delete_todo(tmp_path):
+def test_delete_todo_approved(
+    tmp_path,
+    monkeypatch,
+):
+    """用户批准后真正删除待办。"""
+
+    monkeypatch.setattr(
+        "app.tools.todo_tools.interrupt",
+        lambda request: {
+            "approved": True,
+        },
+    )
+
     tools = create_tools(tmp_path)
 
     tools["add_todo"].invoke(
@@ -100,16 +132,122 @@ def test_delete_todo(tmp_path):
         }
     )
 
-    list_result = tools["list_todos"].invoke({})
+    list_result = tools[
+        "list_todos"
+    ].invoke({})
 
-    assert delete_result == "已删除 ID=1 的待办。"
-    assert list_result == "待办列表为空。"
+    assert (
+        delete_result
+        == "已删除 ID=1 的待办。"
+    )
+
+    assert (
+        list_result
+        == "待办列表为空。"
+    )
+
+
+def test_delete_todo_rejected(
+    tmp_path,
+    monkeypatch,
+):
+    """用户拒绝后不得删除待办。"""
+
+    captured_request = {}
+
+    def reject_delete(request):
+        captured_request.update(
+            request
+        )
+
+        return {
+            "approved": False,
+        }
+
+    monkeypatch.setattr(
+        "app.tools.todo_tools.interrupt",
+        reject_delete,
+    )
+
+    tools = create_tools(tmp_path)
+
+    tools["add_todo"].invoke(
+        {
+            "task": "必须保留",
+        }
+    )
+
+    delete_result = tools[
+        "delete_todo"
+    ].invoke(
+        {
+            "todo_id": 1,
+        }
+    )
+
+    list_result = tools[
+        "list_todos"
+    ].invoke({})
+
+    assert delete_result == (
+        "用户拒绝删除该待办事项，"
+        "操作已取消。"
+    )
+
+    # 拒绝后数据仍然存在。
+    assert (
+        list_result
+        == "ID=1 | 未完成 | 必须保留"
+    )
+
+    # 同时验证传给前端的审批信息。
+    assert captured_request == {
+        "kind": "tool_approval",
+        "tool_name": "delete_todo",
+        "message": (
+            "是否确认删除这个待办事项？"
+        ),
+        "arguments": {
+            "todo_id": 1,
+        },
+    }
+
+
+def test_delete_missing_todo_after_approval(
+    tmp_path,
+    monkeypatch,
+):
+    """批准后仍应正确处理不存在的待办。"""
+
+    monkeypatch.setattr(
+        "app.tools.todo_tools.interrupt",
+        lambda request: {
+            "approved": True,
+        },
+    )
+
+    tools = create_tools(tmp_path)
+
+    result = tools[
+        "delete_todo"
+    ].invoke(
+        {
+            "todo_id": 999,
+        }
+    )
+
+    assert result == (
+        "未找到 ID=999 的待办，"
+        "或该待办不属于当前用户。"
+    )
 
 
 def test_data_survives_repository_recreation(
     tmp_path,
 ):
-    database_path = tmp_path / "persistent.db"
+    database_path = (
+        tmp_path / "persistent.db"
+    )
 
     first_repository = TodoRepository(
         database_path
@@ -125,7 +263,9 @@ def test_data_survives_repository_recreation(
         for current_tool in first_tools
     }
 
-    first_tools_by_name["add_todo"].invoke(
+    first_tools_by_name[
+        "add_todo"
+    ].invoke(
         {
             "task": "需要持久保存的任务",
         }
@@ -149,7 +289,7 @@ def test_data_survives_repository_recreation(
         "list_todos"
     ].invoke({})
 
-    assert (
-        result
-        == "ID=1 | 未完成 | 需要持久保存的任务"
+    assert result == (
+        "ID=1 | 未完成 | "
+        "需要持久保存的任务"
     )

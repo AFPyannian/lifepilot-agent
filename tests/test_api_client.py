@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from app.clients import (
+    ApprovalRequired,
     LifePilotApiClient,
     LifePilotApiError,
     iter_sse_events,
@@ -359,3 +360,88 @@ def test_delete_document_encodes_filename() -> None:
         )
         is True
     )
+
+
+def test_stream_chat_requires_approval() -> None:
+    sse_body = (
+        "event: start\n"
+        'data: {"thread_id":"test"}\n'
+        "\n"
+        "event: approval_required\n"
+        'data: {"thread_id":"test",'
+        '"request":{"tool_name":"delete_todo",'
+        '"message":"确认删除？",'
+        '"arguments":{"todo_id":1}}}\n'
+        "\n"
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            headers={
+                "content-type": (
+                    "text/event-stream"
+                )
+            },
+            text=sse_body,
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    with pytest.raises(
+        ApprovalRequired
+    ) as error_info:
+        list(
+            client.stream_chat(
+                message="删除待办1",
+                thread_id="test",
+            )
+        )
+
+    assert (
+        error_info.value.request[
+            "tool_name"
+        ]
+        == "delete_todo"
+    )
+
+
+def test_resume_chat() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert (
+            request.url.path
+            == "/api/v1/chat/resume"
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "status": "completed",
+                "thread_id": "test",
+                "reply": "删除操作已经取消。",
+                "approval_request": None,
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    reply = client.resume_chat(
+        thread_id="test",
+        approved=False,
+    )
+
+    assert reply == "删除操作已经取消。"

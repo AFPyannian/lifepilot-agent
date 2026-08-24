@@ -1,4 +1,5 @@
 from langchain_core.tools import BaseTool, tool
+from langgraph.types import interrupt
 
 from app.repositories.note_repository import (
     NoteItem,
@@ -167,13 +168,34 @@ def create_note_tools(
 
     @tool
     def delete_note(note_id: int) -> str:
-        """永久删除一条笔记。
-
-        只有用户明确要求删除某条笔记时才使用。
-
+        """
+        功能：永久删除一条笔记，执行前必须获得用户审批。
         Args:
             note_id: 需要永久删除的笔记ID。
         """
+        decision = interrupt(
+            {
+                "kind": "tool_approval",
+                "tool_name": "delete_note",
+                "message": (
+                    "是否确认删除这条笔记？"
+                ),
+                "arguments": {
+                    "note_id": note_id,
+                },
+            }
+        )
+
+        if (
+                not isinstance(decision, dict)
+                or decision.get("approved")
+                is not True
+        ):
+            return (
+                "用户拒绝删除该笔记，"
+                "操作已取消。"
+            )
+
         was_deleted = repository.delete(
             owner_id=owner_id,
             note_id=note_id,
@@ -181,8 +203,7 @@ def create_note_tools(
 
         if not was_deleted:
             return (
-                f"未找到 ID={note_id} 的笔记，"
-                "或该笔记不属于当前用户。"
+                f"未找到 ID={note_id} 的笔记，或该笔记不属于当前用户。"
             )
 
         return f"已删除 ID={note_id} 的笔记。"

@@ -13,6 +13,22 @@ class LifePilotApiError(RuntimeError):
     """调用 LifePilot API 失败。"""
 
 
+class ApprovalRequired(
+    LifePilotApiError
+):
+    """Agent 暂停并等待用户审批。"""
+
+    def __init__(
+        self,
+        request: dict[str, Any],
+    ) -> None:
+        super().__init__(
+            "操作需要用户审批。"
+        )
+
+        self.request = request
+
+
 def iter_sse_events(
     lines: Iterable[str],
 ) -> Iterator[tuple[str, str]]:
@@ -48,7 +64,8 @@ def iter_sse_events(
         if not separator:
             continue
 
-        # SSE 规范只忽略冒号后的第一个空格。
+        # SSE规范只忽略冒号后的
+        # 第一个空格。
         if value.startswith(" "):
             value = value[1:]
 
@@ -101,13 +118,15 @@ class LifePilotApiClient:
         """检查 FastAPI 是否可访问。"""
 
         try:
-            with self._create_http_client() as client:
+            with (
+                self._create_http_client()
+                as client
+            ):
                 response = client.get(
                     "/api/v1/health"
                 )
 
                 response.raise_for_status()
-
                 data = response.json()
 
             return (
@@ -122,10 +141,10 @@ class LifePilotApiClient:
             return False
 
     def upload_document(
-            self,
-            filename: str,
-            content: bytes,
-            content_type: str,
+        self,
+        filename: str,
+        content: bytes,
+        content_type: str,
     ) -> dict[str, Any]:
         """上传并导入知识库文档。"""
 
@@ -144,7 +163,7 @@ class LifePilotApiClient:
         )
 
     def list_documents(
-            self,
+        self,
     ) -> list[dict[str, Any]]:
         """读取知识库文档列表。"""
 
@@ -160,7 +179,10 @@ class LifePilotApiClient:
             [],
         )
 
-        if not isinstance(documents, list):
+        if not isinstance(
+            documents,
+            list,
+        ):
             raise LifePilotApiError(
                 "知识库列表响应格式不正确。"
             )
@@ -168,10 +190,10 @@ class LifePilotApiClient:
         return documents
 
     def delete_document(
-            self,
-            filename: str,
+        self,
+        filename: str,
     ) -> bool:
-        """删除知识库文档。"""
+        """通过侧边栏直接删除知识库文档。"""
 
         encoded_filename = quote(
             filename,
@@ -198,7 +220,10 @@ class LifePilotApiClient:
         """发送消息并逐段返回 Agent 文本。"""
 
         try:
-            with self._create_http_client() as client:
+            with (
+                self._create_http_client()
+                as client
+            ):
                 with client.stream(
                     method="POST",
                     url="/api/v1/chat/stream",
@@ -216,8 +241,12 @@ class LifePilotApiClient:
                         )
                     )
 
-                    if not content_type.lower().startswith(
-                        "text/event-stream"
+                    if (
+                        not content_type
+                        .lower()
+                        .startswith(
+                            "text/event-stream"
+                        )
                     ):
                         raise LifePilotApiError(
                             "后端没有返回 SSE 流。"
@@ -229,8 +258,10 @@ class LifePilotApiClient:
                     ) in iter_sse_events(
                         response.iter_lines()
                     ):
-                        data = self._parse_event_data(
-                            raw_data
+                        data = (
+                            self._parse_event_data(
+                                raw_data
+                            )
                         )
 
                         if event_name == "start":
@@ -252,13 +283,48 @@ class LifePilotApiClient:
 
                             continue
 
+                        if (
+                            event_name
+                            == "approval_required"
+                        ):
+                            approval_request = (
+                                data.get(
+                                    "request"
+                                )
+                            )
+
+                            if not isinstance(
+                                approval_request,
+                                dict,
+                            ):
+                                approval_request = {
+                                    "kind": (
+                                        "tool_approval"
+                                    ),
+                                    "tool_name": (
+                                        "unknown"
+                                    ),
+                                    "message": (
+                                        "是否批准"
+                                        "该操作？"
+                                    ),
+                                    "arguments": {},
+                                }
+
+                            raise ApprovalRequired(
+                                approval_request
+                            )
+
                         if event_name == "error":
-                            error_message = data.get(
-                                "message",
-                                (
-                                    "LifePilot 生成回答时"
-                                    "发生错误。"
-                                ),
+                            error_message = (
+                                data.get(
+                                    "message",
+                                    (
+                                        "LifePilot "
+                                        "生成回答时"
+                                        "发生错误。"
+                                    ),
+                                )
                             )
 
                             raise LifePilotApiError(
@@ -268,8 +334,8 @@ class LifePilotApiClient:
                         if event_name == "done":
                             return
 
-            # 没有收到 done 或 error，
-            # 说明连接非正常结束。
+            # 没有收到done、error或
+            # approval_required，说明连接异常。
             raise LifePilotApiError(
                 "流式连接意外中断。"
             )
@@ -278,8 +344,10 @@ class LifePilotApiClient:
             raise
 
         except httpx.HTTPStatusError as error:
-            detail = self._extract_http_error(
-                error.response
+            detail = (
+                self._extract_http_error(
+                    error.response
+                )
             )
 
             raise LifePilotApiError(
@@ -299,17 +367,82 @@ class LifePilotApiClient:
 
         except httpx.HTTPError as error:
             raise LifePilotApiError(
-                "与 LifePilot 后端通信失败。"
+                "与 LifePilot 后端"
+                "通信失败。"
             ) from error
 
+    def resume_chat(
+        self,
+        thread_id: str,
+        approved: bool,
+    ) -> str:
+        """批准或拒绝等待中的敏感操作。"""
+
+        data = self._request_json(
+            method="POST",
+            path="/api/v1/chat/resume",
+            json={
+                "thread_id": thread_id,
+                "approved": approved,
+            },
+        )
+
+        response_status = data.get(
+            "status"
+        )
+
+        # 恢复一个操作后，可能还有
+        # 另一个危险操作需要审批。
+        if (
+            response_status
+            == "approval_required"
+        ):
+            approval_request = data.get(
+                "approval_request",
+                {},
+            )
+
+            if not isinstance(
+                approval_request,
+                dict,
+            ):
+                approval_request = {}
+
+            raise ApprovalRequired(
+                approval_request
+            )
+
+        if response_status != "completed":
+            raise LifePilotApiError(
+                "后端返回了未知的审批状态。"
+            )
+
+        reply = data.get("reply")
+
+        if (
+            not isinstance(reply, str)
+            or not reply.strip()
+        ):
+            raise LifePilotApiError(
+                "Agent 恢复执行后没有"
+                "返回有效回答。"
+            )
+
+        return reply
+
     def _request_json(
-            self,
-            method: str,
-            path: str,
-            **kwargs: Any,
+        self,
+        method: str,
+        path: str,
+        **kwargs: Any,
     ) -> dict[str, Any]:
+        """发送普通HTTP请求并读取JSON对象。"""
+
         try:
-            with self._create_http_client() as client:
+            with (
+                self._create_http_client()
+                as client
+            ):
                 response = client.request(
                     method=method,
                     url=path,
@@ -330,8 +463,10 @@ class LifePilotApiClient:
             raise
 
         except httpx.HTTPStatusError as error:
-            detail = self._extract_http_error(
-                error.response
+            detail = (
+                self._extract_http_error(
+                    error.response
+                )
             )
 
             raise LifePilotApiError(
@@ -346,12 +481,13 @@ class LifePilotApiClient:
 
         except httpx.TimeoutException as error:
             raise LifePilotApiError(
-                "知识库操作超时。"
+                "请求超时，请稍后重试。"
             ) from error
 
         except httpx.HTTPError as error:
             raise LifePilotApiError(
-                "与 LifePilot 后端通信失败。"
+                "与 LifePilot 后端"
+                "通信失败。"
             ) from error
 
         except ValueError as error:
@@ -373,11 +509,14 @@ class LifePilotApiClient:
         raw_data: str,
     ) -> dict[str, Any]:
         try:
-            data = json.loads(raw_data)
+            data = json.loads(
+                raw_data
+            )
 
         except json.JSONDecodeError as error:
             raise LifePilotApiError(
-                "后端返回了无法解析的 SSE 数据。"
+                "后端返回了无法解析的"
+                " SSE 数据。"
             ) from error
 
         if not isinstance(data, dict):
@@ -395,7 +534,9 @@ class LifePilotApiClient:
             data = response.json()
 
             if isinstance(data, dict):
-                detail = data.get("detail")
+                detail = data.get(
+                    "detail"
+                )
 
                 if isinstance(detail, str):
                     return detail

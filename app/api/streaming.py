@@ -13,6 +13,10 @@ from langchain_core.messages import (
 from app.api.execution import (
     resume_pending_execution,
 )
+from app.api.interrupts import (
+    find_pending_interrupt,
+    normalize_approval_request,
+)
 from app.exceptions import LifePilotError
 
 
@@ -61,78 +65,139 @@ def stream_chat_events(
     )
 
     try:
-        # 当前项目共享一个 SQLite Checkpointer。
-        # 整个 Graph 流式执行期间都必须持有锁。
+        approval_request: (
+            dict[str, Any] | None
+        ) = None
+
         with graph_lock:
-            resume_pending_execution(
-                graph=graph,
-                config=config,
+            # 先检查是否存在人工审批中断。
+            # 这种状态不能调用 invoke(None)。
+            pending_interrupt = (
+                find_pending_interrupt(
+                    graph=graph,
+                    config=config,
+                )
             )
 
-            stream = graph.stream(
-                {
-                    "messages": [
-                        HumanMessage(
-                            content=message
-                        )
-                    ]
-                },
-                config=config,
-                stream_mode="messages",
-                version="v2",
-            )
-
-            for part in stream:
-                if part.get("type") != "messages":
-                    continue
-
-                stream_data = part.get("data")
-
-                if (
-                    not isinstance(
-                        stream_data,
-                        tuple,
+            if pending_interrupt is not None:
+                approval_request = (
+                    normalize_approval_request(
+                        pending_interrupt
                     )
-                    or len(stream_data) != 2
-                ):
-                    continue
-
-                message_chunk, metadata = (
-                    stream_data
                 )
 
-                if not isinstance(metadata, dict):
-                    continue
-
-                # 只发送 assistant 节点产生的文本。
-                # 不发送工具节点和其他内部事件。
-                if (
-                    metadata.get(
-                        "langgraph_node"
-                    )
-                    != "assistant"
-                ):
-                    continue
-
-                content = getattr(
-                    message_chunk,
-                    "content",
-                    "",
+            else:
+                # 只有确认不是人工审批后，
+                # 才恢复普通未完成节点。
+                resume_pending_execution(
+                    graph=graph,
+                    config=config,
                 )
 
-                text = _extract_stream_text(
-                    content
-                )
-
-                if not text:
-                    continue
-
-                yield create_sse_event(
-                    event="token",
-                    data={
-                        "content": text,
+                stream = graph.stream(
+                    {
+                        "messages": [
+                            HumanMessage(
+                                content=message
+                            )
+                        ]
                     },
+                    config=config,
+                    stream_mode="messages",
+                    version="v2",
                 )
+
+                for part in stream:
+                    if (
+                        part.get("type")
+                        != "messages"
+                    ):
+                        continue
+
+                    stream_data = part.get(
+                        "data"
+                    )
+
+                    if (
+                        not isinstance(
+                            stream_data,
+                            tuple,
+                        )
+                        or len(stream_data) != 2
+                    ):
+                        continue
+
+                    message_chunk, metadata = (
+                        stream_data
+                    )
+
+                    if not isinstance(
+                        metadata,
+                        dict,
+                    ):
+                        continue
+
+                    if (
+                        metadata.get(
+                            "langgraph_node"
+                        )
+                        != "assistant"
+                    ):
+                        continue
+
+                    content = getattr(
+                        message_chunk,
+                        "content",
+                        "",
+                    )
+
+                    text = _extract_stream_text(
+                        content
+                    )
+
+                    if text:
+                        yield create_sse_event(
+                            event="token",
+                            data={
+                                "content": text,
+                            },
+                        )
+
+                # messages流本身不会作为普通文本
+                # 返回审批内容，所以执行后查询状态。
+                pending_interrupt = (
+                    find_pending_interrupt(
+                        graph=graph,
+                        config=config,
+                    )
+                )
+
+                if pending_interrupt is not None:
+                    approval_request = (
+                        normalize_approval_request(
+                            pending_interrupt
+                        )
+                    )
+
+        if approval_request is not None:
+            logger.info(
+                "Agent approval required "
+                "thread_id=%s tool=%s",
+                thread_id,
+                approval_request.get(
+                    "tool_name"
+                ),
+            )
+
+            yield create_sse_event(
+                event="approval_required",
+                data={
+                    "thread_id": thread_id,
+                    "request": approval_request,
+                },
+            )
+
+            return
 
         logger.info(
             "Agent stream completed "

@@ -6,6 +6,7 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from app.clients import (
+    ApprovalRequired,
     LifePilotApiClient,
     LifePilotApiError,
 )
@@ -48,6 +49,14 @@ def initialize_session_state() -> None:
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+
+    if (
+            "pending_approval"
+            not in st.session_state
+    ):
+        st.session_state.pending_approval = (
+            None
+        )
 
 
 @st.cache_data(
@@ -108,6 +117,8 @@ with st.sidebar:
         )
 
         st.session_state.messages = []
+
+        st.session_state.pending_approval = None
 
         # 清除健康检查缓存，
         # 同时重新执行页面。
@@ -274,6 +285,100 @@ for message in st.session_state.messages:
         )
 
 
+pending_approval = (
+    st.session_state.pending_approval
+)
+
+if pending_approval is not None:
+    st.warning(
+        pending_approval.get(
+            "message",
+            (
+                "LifePilot 请求执行"
+                "一项敏感操作。"
+            ),
+        )
+    )
+
+    tool_name = pending_approval.get(
+        "tool_name",
+        "未知工具",
+    )
+
+    st.write(
+        f"工具名称：`{tool_name}`"
+    )
+
+    with st.expander(
+        "查看操作参数"
+    ):
+        st.json(
+            pending_approval.get(
+                "arguments",
+                {},
+            )
+        )
+
+    approve_column, reject_column = (
+        st.columns(2)
+    )
+
+    with approve_column:
+        approve_clicked = st.button(
+            "批准执行",
+            type="primary",
+            use_container_width=True,
+        )
+
+    with reject_column:
+        reject_clicked = st.button(
+            "拒绝执行",
+            use_container_width=True,
+        )
+
+    if approve_clicked or reject_clicked:
+        approved = approve_clicked
+
+        try:
+            with st.spinner(
+                "正在恢复 Agent 执行……"
+            ):
+                reply = client.resume_chat(
+                    thread_id=(
+                        st.session_state
+                        .thread_id
+                    ),
+                    approved=approved,
+                )
+
+            st.session_state.messages.append(
+                {
+                    "role": "assistant",
+                    "content": reply,
+                }
+            )
+
+            st.session_state.pending_approval = (
+                None
+            )
+
+            st.rerun()
+
+        except ApprovalRequired as error:
+            # 还存在下一个危险操作。
+            st.session_state.pending_approval = (
+                error.request
+            )
+
+            st.rerun()
+
+        except LifePilotApiError as error:
+            st.error(str(error))
+
+    # 等待审批期间不显示聊天输入框。
+    st.stop()
+
+
 prompt = st.chat_input(
     placeholder="给 LifePilot 发送消息……",
     max_chars=10_000,
@@ -339,6 +444,25 @@ if prompt:
             st.session_state.messages.append(
                 assistant_message
             )
+
+        except ApprovalRequired as error:
+            partial_response = "".join(
+                received_chunks
+            )
+
+            if partial_response:
+                st.session_state.messages.append(
+                    {
+                        "role": "assistant",
+                        "content": partial_response,
+                    }
+                )
+
+            st.session_state.pending_approval = (
+                error.request
+            )
+
+            st.rerun()
 
         except LifePilotApiError as error:
             partial_response = "".join(
