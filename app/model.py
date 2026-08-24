@@ -16,6 +16,7 @@ def create_model( settings: Settings) -> ChatDeepSeek:
             model=settings.deepseek_model,
             temperature=0,
             max_retries=2,
+            streaming=True,
         )
     except Exception as error:
         raise ModelServiceError(

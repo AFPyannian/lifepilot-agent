@@ -1,5 +1,4 @@
 import logging
-from collections.abc import Sequence
 from typing import Any
 
 from fastapi import (
@@ -8,21 +7,31 @@ from fastapi import (
     Request,
     status,
 )
+from fastapi.responses import (
+    StreamingResponse,
+)
 from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
     HumanMessage,
 )
 
+from app.api.execution import (
+    extract_latest_ai_reply,
+    resume_pending_execution,
+)
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     HealthResponse,
 )
+from app.api.streaming import (
+    stream_chat_events,
+)
 from app.exceptions import LifePilotError
 
 
-logger = logging.getLogger("lifepilot.api")
+logger = logging.getLogger(
+    "lifepilot.api"
+)
 
 router = APIRouter()
 
@@ -48,23 +57,9 @@ def chat(
     payload: ChatRequest,
     request: Request,
 ) -> ChatResponse:
-    graph = getattr(
-        request.app.state,
-        "agent_graph",
-        None,
+    graph, graph_lock = (
+        _get_graph_dependencies(request)
     )
-
-    graph_lock = getattr(
-        request.app.state,
-        "graph_lock",
-        None,
-    )
-
-    if graph is None or graph_lock is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LifePilot 尚未完成初始化。",
-        )
 
     config = {
         "configurable": {
@@ -73,11 +68,8 @@ def chat(
     }
 
     try:
-        # 当前使用单个 SQLite Checkpointer 连接。
-        # 检查状态、恢复执行和添加新消息必须放在同一把锁中，
-        # 防止多个请求同时操作 Graph。
         with graph_lock:
-            _resume_pending_execution(
+            resume_pending_execution(
                 graph=graph,
                 config=config,
             )
@@ -93,7 +85,7 @@ def chat(
                 config=config,
             )
 
-        reply = _extract_latest_ai_reply(
+        reply = extract_latest_ai_reply(
             result.get("messages", [])
         )
 
@@ -116,7 +108,10 @@ def chat(
         )
 
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=(
+                status
+                .HTTP_503_SERVICE_UNAVAILABLE
+            ),
             detail=error.user_message,
         ) from error
 
@@ -128,81 +123,79 @@ def chat(
         )
 
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="LifePilot 处理请求时发生内部错误。",
+            status_code=(
+                status
+                .HTTP_500_INTERNAL_SERVER_ERROR
+            ),
+            detail=(
+                "LifePilot 处理请求时"
+                "发生内部错误。"
+            ),
         ) from error
 
 
-def _resume_pending_execution(
-    graph: Any,
-    config: dict[str, Any],
-) -> None:
-    """恢复当前会话中未完成的 Graph 节点。"""
-
-    snapshot = graph.get_state(config)
-
-    if not snapshot.next:
-        return
-
-    logger.warning(
-        "Pending Agent execution detected "
-        "next_nodes=%s",
-        snapshot.next,
+@router.post(
+    "/chat/stream",
+    response_class=StreamingResponse,
+    summary="与 LifePilot Agent 流式对话",
+    responses={
+        200: {
+            "content": {
+                "text/event-stream": {}
+            },
+            "description": "SSE 流式响应",
+        }
+    },
+)
+def chat_stream(
+    payload: ChatRequest,
+    request: Request,
+) -> StreamingResponse:
+    graph, graph_lock = (
+        _get_graph_dependencies(request)
     )
 
-    # None 表示不追加新的 HumanMessage，
-    # 直接从 Checkpoint 中的未完成节点继续。
-    graph.invoke(
+    event_iterator = stream_chat_events(
+        graph=graph,
+        graph_lock=graph_lock,
+        message=payload.message,
+        thread_id=payload.thread_id,
+    )
+
+    return StreamingResponse(
+        content=event_iterator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _get_graph_dependencies(
+    request: Request,
+) -> tuple[Any, Any]:
+    """读取 FastAPI 生命周期中创建的 Graph。"""
+
+    graph = getattr(
+        request.app.state,
+        "agent_graph",
         None,
-        config=config,
     )
 
-    resumed_snapshot = graph.get_state(config)
+    graph_lock = getattr(
+        request.app.state,
+        "graph_lock",
+        None,
+    )
 
-    if resumed_snapshot.next:
-        raise RuntimeError(
-            "恢复执行后仍然存在未完成节点"
+    if graph is None or graph_lock is None:
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_503_SERVICE_UNAVAILABLE
+            ),
+            detail="LifePilot 尚未完成初始化。",
         )
 
-
-def _extract_latest_ai_reply(
-    messages: Sequence[BaseMessage],
-) -> str:
-    """从 Graph 状态中提取最后一条有效 AI 回复。"""
-
-    for message in reversed(messages):
-        if not isinstance(message, AIMessage):
-            continue
-
-        content = message.content
-
-        if isinstance(content, str):
-            clean_content = content.strip()
-
-            if clean_content:
-                return clean_content
-
-        if isinstance(content, list):
-            text_parts: list[str] = []
-
-            for block in content:
-                if isinstance(block, str):
-                    text_parts.append(block)
-                    continue
-
-                if isinstance(block, dict):
-                    text = block.get("text")
-
-                    if isinstance(text, str):
-                        text_parts.append(text)
-
-            combined_text = "".join(
-                text_parts
-            ).strip()
-
-            if combined_text:
-                return combined_text
-
-    raise RuntimeError(
-        "Agent 没有返回有效的 AI 消息"
-    )
+    return graph, graph_lock
