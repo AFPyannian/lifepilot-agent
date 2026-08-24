@@ -5,7 +5,12 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.api.routes import router
+from app.api.knowledge_routes import (
+    router as knowledge_router,
+)
+from app.api.routes import (
+    router as chat_router,
+)
 from app.checkpointing import (
     open_sqlite_checkpointer,
 )
@@ -16,6 +21,7 @@ from app.config import (
 )
 from app.graph import build_graph
 from app.knowledge import (
+    KnowledgeBaseService,
     create_knowledge_base_service,
 )
 from app.logging_config import (
@@ -26,6 +32,7 @@ from app.logging_config import (
 
 def create_app(
     agent_graph: Any | None = None,
+    knowledge_service: KnowledgeBaseService | None = None,
     settings: Settings | None = None,
 ) -> FastAPI:
     """
@@ -47,7 +54,9 @@ def create_app(
             )
             application.state.graph_lock = Lock()
             application.state.settings = settings
-            application.state.knowledge_service = None
+            application.state.knowledge_service = (
+                knowledge_service
+            )
 
             yield
             return
@@ -67,10 +76,11 @@ def create_app(
         )
 
         try:
-            knowledge_service = (
-                create_knowledge_base_service(
-                    active_settings
-                )
+            active_knowledge_service = (
+                    knowledge_service
+                    or create_knowledge_base_service(
+                active_settings
+            )
             )
 
             # 这个 with 必须包围整个 yield。
@@ -84,7 +94,7 @@ def create_app(
                     settings=active_settings,
                     checkpointer=checkpointer,
                     knowledge_service=(
-                        knowledge_service
+                        active_knowledge_service
                     ),
                     owner_id=(
                         active_settings.owner_id
@@ -95,7 +105,7 @@ def create_app(
                     active_settings
                 )
                 application.state.knowledge_service = (
-                    knowledge_service
+                    active_knowledge_service
                 )
                 application.state.agent_graph = graph
                 application.state.graph_lock = Lock()
@@ -115,9 +125,15 @@ def create_app(
     )
 
     application.include_router(
-        router,
+        chat_router,
         prefix="/api/v1",
         tags=["LifePilot"],
+    )
+
+    application.include_router(
+        knowledge_router,
+        prefix="/api/v1",
+        tags=["Knowledge Base"],
     )
 
     return application

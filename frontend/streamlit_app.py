@@ -122,6 +122,130 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    st.subheader("个人知识库")
+
+    uploaded_file = st.file_uploader(
+        "上传知识文档",
+        type=["txt", "md", "pdf"],
+        accept_multiple_files=False,
+        max_upload_size=20,
+        disabled=not backend_available,
+    )
+
+    if st.button(
+            "导入知识库",
+            use_container_width=True,
+            disabled=(
+                    not backend_available
+                    or uploaded_file is None
+            ),
+    ):
+        try:
+            with st.spinner(
+                    "正在解析和向量化文档……"
+            ):
+                result = (
+                    client.upload_document(
+                        filename=(
+                            uploaded_file.name
+                        ),
+                        content=(
+                            uploaded_file
+                            .getvalue()
+                        ),
+                        content_type=(
+                                uploaded_file.type
+                                or (
+                                    "application/"
+                                    "octet-stream"
+                                )
+                        ),
+                    )
+                )
+
+            if result["already_indexed"]:
+                st.info(
+                    f"{result['filename']} "
+                    "已经导入，不需要重复"
+                    "向量化。"
+                )
+            else:
+                st.success(
+                    f"已导入 "
+                    f"{result['filename']}，"
+                    f"生成 "
+                    f"{result['chunk_count']} "
+                    "个文本块。"
+                )
+
+        except LifePilotApiError as error:
+            st.error(str(error))
+
+    documents: list[dict] = []
+
+    if backend_available:
+        try:
+            documents = (
+                client.list_documents()
+            )
+
+        except LifePilotApiError as error:
+            st.warning(str(error))
+
+    if documents:
+        st.caption(
+            f"当前共有 {len(documents)} "
+            "个知识文档"
+        )
+
+        for document in documents:
+            st.write(
+                f"📄 {document['filename']} "
+                f"({document['chunk_count']} 块)"
+            )
+
+        selected_filename = st.selectbox(
+            "选择需要删除的文档",
+            options=[
+                document["filename"]
+                for document in documents
+            ],
+        )
+
+        confirm_delete = st.checkbox(
+            "我确认删除该文档"
+        )
+
+        if st.button(
+                "删除选中文档",
+                use_container_width=True,
+                disabled=not confirm_delete,
+        ):
+            try:
+                deleted = (
+                    client.delete_document(
+                        selected_filename
+                    )
+                )
+
+                if deleted:
+                    st.success(
+                        "已删除："
+                        f"{selected_filename}"
+                    )
+                    st.rerun()
+                else:
+                    st.info(
+                        "该文档已经不存在。"
+                    )
+
+            except LifePilotApiError as error:
+                st.error(str(error))
+
+    else:
+        st.caption(
+            "知识库中还没有文档"
+        )
 
     st.caption(
         "LifePilot 使用 LangGraph、"

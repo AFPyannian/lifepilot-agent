@@ -247,3 +247,115 @@ def test_http_error_uses_safe_detail() -> None:
                 thread_id="test",
             )
         )
+
+
+def test_upload_document() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert (
+            request.url.path
+            == "/api/v1/knowledge/documents"
+        )
+
+        assert request.method == "POST"
+
+        content_type = request.headers[
+            "content-type"
+        ]
+
+        assert content_type.startswith(
+            "multipart/form-data"
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "filename": "guide.md",
+                "chunk_count": 2,
+                "already_indexed": False,
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    result = client.upload_document(
+        filename="guide.md",
+        content=b"# Guide",
+        content_type="text/markdown",
+    )
+
+    assert result["filename"] == "guide.md"
+    assert result["chunk_count"] == 2
+
+
+def test_list_documents() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={
+                "documents": [
+                    {
+                        "filename": (
+                            "guide.md"
+                        ),
+                        "chunk_count": 2,
+                    }
+                ]
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    assert client.list_documents() == [
+        {
+            "filename": "guide.md",
+            "chunk_count": 2,
+        }
+    ]
+
+
+def test_delete_document_encodes_filename() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.method == "DELETE"
+
+        assert (
+            b"%E5%AD%A6%E4%B9%A0.md"
+            in request.url.raw_path
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "filename": "学习.md",
+                "deleted": True,
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    assert (
+        client.delete_document(
+            "学习.md"
+        )
+        is True
+    )

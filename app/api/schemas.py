@@ -48,3 +48,31 @@ class HealthResponse(BaseModel):
 
     status: str
     service: str
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    """文档上传和导入结果。"""
+
+    filename: str
+    chunk_count: int
+    already_indexed: bool
+
+
+class KnowledgeDocumentItem(BaseModel):
+    """知识库中的一个文档。"""
+
+    filename: str
+    chunk_count: int
+
+
+class KnowledgeListResponse(BaseModel):
+    """知识库文档列表。"""
+
+    documents: list[KnowledgeDocumentItem]
+
+
+class KnowledgeDeleteResponse(BaseModel):
+    """知识库文档删除结果。"""
+
+    filename: str
+    deleted: bool

@@ -4,6 +4,7 @@ from collections.abc import (
     Iterator,
 )
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -120,6 +121,75 @@ class LifePilotApiClient:
         ):
             return False
 
+    def upload_document(
+            self,
+            filename: str,
+            content: bytes,
+            content_type: str,
+    ) -> dict[str, Any]:
+        """上传并导入知识库文档。"""
+
+        return self._request_json(
+            method="POST",
+            path=(
+                "/api/v1/knowledge/documents"
+            ),
+            files={
+                "file": (
+                    filename,
+                    content,
+                    content_type,
+                )
+            },
+        )
+
+    def list_documents(
+            self,
+    ) -> list[dict[str, Any]]:
+        """读取知识库文档列表。"""
+
+        data = self._request_json(
+            method="GET",
+            path=(
+                "/api/v1/knowledge/documents"
+            ),
+        )
+
+        documents = data.get(
+            "documents",
+            [],
+        )
+
+        if not isinstance(documents, list):
+            raise LifePilotApiError(
+                "知识库列表响应格式不正确。"
+            )
+
+        return documents
+
+    def delete_document(
+            self,
+            filename: str,
+    ) -> bool:
+        """删除知识库文档。"""
+
+        encoded_filename = quote(
+            filename,
+            safe="",
+        )
+
+        data = self._request_json(
+            method="DELETE",
+            path=(
+                "/api/v1/knowledge/documents/"
+                f"{encoded_filename}"
+            ),
+        )
+
+        return bool(
+            data.get("deleted")
+        )
+
     def stream_chat(
         self,
         message: str,
@@ -230,6 +300,63 @@ class LifePilotApiClient:
         except httpx.HTTPError as error:
             raise LifePilotApiError(
                 "与 LifePilot 后端通信失败。"
+            ) from error
+
+    def _request_json(
+            self,
+            method: str,
+            path: str,
+            **kwargs: Any,
+    ) -> dict[str, Any]:
+        try:
+            with self._create_http_client() as client:
+                response = client.request(
+                    method=method,
+                    url=path,
+                    **kwargs,
+                )
+
+                response.raise_for_status()
+                data = response.json()
+
+            if not isinstance(data, dict):
+                raise LifePilotApiError(
+                    "后端响应格式不正确。"
+                )
+
+            return data
+
+        except LifePilotApiError:
+            raise
+
+        except httpx.HTTPStatusError as error:
+            detail = self._extract_http_error(
+                error.response
+            )
+
+            raise LifePilotApiError(
+                detail
+            ) from error
+
+        except httpx.ConnectError as error:
+            raise LifePilotApiError(
+                "无法连接 LifePilot 后端，"
+                "请确认 FastAPI 已经启动。"
+            ) from error
+
+        except httpx.TimeoutException as error:
+            raise LifePilotApiError(
+                "知识库操作超时。"
+            ) from error
+
+        except httpx.HTTPError as error:
+            raise LifePilotApiError(
+                "与 LifePilot 后端通信失败。"
+            ) from error
+
+        except ValueError as error:
+            raise LifePilotApiError(
+                "后端返回了无法解析的数据。"
             ) from error
 
     def _create_http_client(
