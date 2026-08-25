@@ -1,5 +1,9 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import (
+    AsyncIterator,
+)
+from contextlib import (
+    asynccontextmanager,
+)
 from threading import Lock
 from typing import Any
 
@@ -14,6 +18,9 @@ from swagger_ui_bundle import (
     swagger_ui_path,
 )
 
+from app.api.conversation_routes import (
+    router as conversation_router,
+)
 from app.api.knowledge_routes import (
     router as knowledge_router,
 )
@@ -37,34 +44,81 @@ from app.logging_config import (
     configure_logging,
     shutdown_logging,
 )
+from app.repositories.conversation_repository import (
+    ConversationRepository,
+)
 
 
 def create_app(
     agent_graph: Any | None = None,
-    knowledge_service: KnowledgeBaseService | None = None,
+    knowledge_service: (
+        KnowledgeBaseService | None
+    ) = None,
     settings: Settings | None = None,
+    conversation_repository: (
+        ConversationRepository | None
+    ) = None,
 ) -> FastAPI:
     """
-    创建 FastAPI 应用。
+    创建FastAPI应用。
 
-    agent_graph 参数用于测试时注入 FakeGraph，
-    避免调用真实 DeepSeek 和本地数据库。
+    可选参数主要用于自动化测试：
+
+    agent_graph：
+        注入FakeGraph，避免调用真实DeepSeek。
+
+    knowledge_service：
+        注入FakeKnowledgeService，避免加载
+        Embedding模型和真实Chroma。
+
+    settings：
+        注入测试配置。
+
+    conversation_repository：
+        注入测试会话Repository。
     """
 
     @asynccontextmanager
     async def lifespan(
         application: FastAPI,
     ) -> AsyncIterator[None]:
-        # 自动化测试可以直接注入 FakeGraph，
-        # 此时不读取 .env，也不创建真实数据库。
+        active_conversation_repository = (
+            conversation_repository
+        )
+
+        # 自动化测试可以直接注入FakeGraph。
+        # 此时不读取.env、不创建真实数据库，
+        # 也不加载Embedding模型。
         if agent_graph is not None:
             application.state.agent_graph = (
                 agent_graph
             )
-            application.state.graph_lock = Lock()
-            application.state.settings = settings
+
+            application.state.graph_lock = (
+                Lock()
+            )
+
+            application.state.settings = (
+                settings
+            )
+
             application.state.knowledge_service = (
                 knowledge_service
+            )
+
+            application.state.conversation_repository = (
+                active_conversation_repository
+            )
+
+            # 如果FakeGraph提供checkpointer，
+            # 会话删除测试也可以验证
+            # delete_thread()是否被调用。
+            application.state.checkpointer = (
+                getattr(
+                    agent_graph,
+                    "checkpointer",
+                    None,
+                )
             )
 
             yield
@@ -85,23 +139,38 @@ def create_app(
         )
 
         try:
+            # 会话元数据与待办、笔记等业务数据
+            # 共用lifepilot.db，但使用独立的数据表。
+            if (
+                active_conversation_repository
+                is None
+            ):
+                active_conversation_repository = (
+                    ConversationRepository(
+                        active_settings
+                        .app_database_path
+                    )
+                )
+
             active_knowledge_service = (
-                    knowledge_service
-                    or create_knowledge_base_service(
-                active_settings
-            )
+                knowledge_service
+                or create_knowledge_base_service(
+                    active_settings
+                )
             )
 
-            # 这个 with 必须包围整个 yield。
-            # 只有这样 SQLite Checkpointer 连接
-            # 才会在 FastAPI 运行期间一直保持打开。
+            # 这个with必须包围整个yield。
+            # 只有这样SQLite Checkpointer连接
+            # 才会在FastAPI运行期间保持打开。
             with open_sqlite_checkpointer(
                 active_settings
                 .checkpoint_database_path
-            ) as checkpointer:
+            ) as active_checkpointer:
                 graph = build_graph(
                     settings=active_settings,
-                    checkpointer=checkpointer,
+                    checkpointer=(
+                        active_checkpointer
+                    ),
                     knowledge_service=(
                         active_knowledge_service
                     ),
@@ -113,11 +182,26 @@ def create_app(
                 application.state.settings = (
                     active_settings
                 )
+
                 application.state.knowledge_service = (
                     active_knowledge_service
                 )
-                application.state.agent_graph = graph
-                application.state.graph_lock = Lock()
+
+                application.state.conversation_repository = (
+                    active_conversation_repository
+                )
+
+                application.state.checkpointer = (
+                    active_checkpointer
+                )
+
+                application.state.agent_graph = (
+                    graph
+                )
+
+                application.state.graph_lock = (
+                    Lock()
+                )
 
                 yield
 
@@ -127,13 +211,19 @@ def create_app(
     application = FastAPI(
         title="LifePilot Agent API",
         description=(
-            "基于 LangGraph 和 DeepSeek 的个人助理 Agent 后端服务"
+            "基于LangGraph和DeepSeek的"
+            "个人助理Agent后端服务"
         ),
         version="0.1.0",
         lifespan=lifespan,
+
+        # 禁用FastAPI默认的在线Swagger资源，
+        # 后面改用本地静态资源。
         docs_url=None,
     )
 
+    # 加载本地Swagger UI资源，
+    # 避免浏览器访问外部CDN。
     application.mount(
         "/docs-assets",
         StaticFiles(
@@ -147,10 +237,12 @@ def create_app(
         include_in_schema=False,
     )
     async def custom_swagger_ui():
+        """返回使用本地静态资源的Swagger UI。"""
+
         return get_swagger_ui_html(
             openapi_url=(
-                    application.openapi_url
-                    or "/openapi.json"
+                application.openapi_url
+                or "/openapi.json"
             ),
             title=(
                 f"{application.title} "
@@ -180,6 +272,12 @@ def create_app(
         knowledge_router,
         prefix="/api/v1",
         tags=["Knowledge Base"],
+    )
+
+    application.include_router(
+        conversation_router,
+        prefix="/api/v1",
+        tags=["Conversations"],
     )
 
     return application

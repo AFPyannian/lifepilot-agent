@@ -212,6 +212,96 @@ class LifePilotApiClient:
             data.get("deleted")
         )
 
+    def list_conversations(
+            self,
+    ) -> list[dict[str, Any]]:
+        """获取历史会话列表。"""
+
+        data = self._request_json(
+            method="GET",
+            path="/api/v1/conversations",
+        )
+
+        conversations = data.get(
+            "conversations",
+            [],
+        )
+
+        if not isinstance(
+                conversations,
+                list,
+        ):
+            raise LifePilotApiError(
+                "历史会话响应格式不正确。"
+            )
+
+        return conversations
+
+    def get_conversation(
+            self,
+            thread_id: str,
+    ) -> dict[str, Any]:
+        """加载历史会话详情。"""
+
+        encoded_thread_id = quote(
+            thread_id,
+            safe="",
+        )
+
+        return self._request_json(
+            method="GET",
+            path=(
+                "/api/v1/conversations/"
+                f"{encoded_thread_id}"
+            ),
+        )
+
+    def rename_conversation(
+            self,
+            thread_id: str,
+            title: str,
+    ) -> dict[str, Any]:
+        """修改会话标题。"""
+
+        encoded_thread_id = quote(
+            thread_id,
+            safe="",
+        )
+
+        return self._request_json(
+            method="PATCH",
+            path=(
+                "/api/v1/conversations/"
+                f"{encoded_thread_id}"
+            ),
+            json={
+                "title": title,
+            },
+        )
+
+    def delete_conversation(
+            self,
+            thread_id: str,
+    ) -> bool:
+        """删除会话及其执行状态。"""
+
+        encoded_thread_id = quote(
+            thread_id,
+            safe="",
+        )
+
+        data = self._request_json(
+            method="DELETE",
+            path=(
+                "/api/v1/conversations/"
+                f"{encoded_thread_id}"
+            ),
+        )
+
+        return bool(
+            data.get("deleted")
+        )
+
     def stream_chat(
         self,
         message: str,

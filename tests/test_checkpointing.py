@@ -177,3 +177,77 @@ def test_sqlite_checkpointer_survives_reopen(
             second_result["messages"][-1].content
             == "已看到 2 条用户消息"
         )
+
+def test_delete_thread_removes_checkpoints(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "LANGGRAPH_STRICT_MSGPACK",
+        "true",
+    )
+
+    checkpoint_path = (
+        tmp_path / "checkpoints.db"
+    )
+
+    application_database_path = (
+        tmp_path / "application.db"
+    )
+
+    config = {
+        "configurable": {
+            "thread_id": "delete-thread",
+        }
+    }
+
+    with open_sqlite_checkpointer(
+        checkpoint_path
+    ) as checkpointer:
+        graph = build_graph(
+            model=FakeChatModel(),
+            checkpointer=checkpointer,
+            todo_repository=TodoRepository(
+                application_database_path
+            ),
+            note_repository=NoteRepository(
+                application_database_path
+            ),
+            memory_repository=(
+                UserMemoryRepository(
+                    application_database_path
+                )
+            ),
+            owner_id="test-user",
+        )
+
+        graph.invoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content="测试消息"
+                    )
+                ]
+            },
+            config=config,
+        )
+
+        assert (
+            graph.get_state(
+                config
+            ).values["messages"]
+        )
+
+        checkpointer.delete_thread(
+            "delete-thread"
+        )
+
+        empty_snapshot = graph.get_state(
+            config
+        )
+
+        assert (
+            empty_snapshot.values
+            .get("messages", [])
+            == []
+        )

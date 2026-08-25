@@ -133,6 +133,188 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    st.subheader("历史会话")
+
+    conversations: list[dict] = []
+
+    if backend_available:
+        try:
+            conversations = (
+                client.list_conversations()
+            )
+
+        except LifePilotApiError as error:
+            st.warning(str(error))
+
+    if conversations:
+        conversation_ids = [
+            conversation["thread_id"]
+            for conversation in conversations
+        ]
+
+        title_by_id = {
+            conversation["thread_id"]: (
+                conversation["title"]
+            )
+            for conversation
+            in conversations
+        }
+
+        current_thread_id = (
+            st.session_state.thread_id
+        )
+
+        default_index = 0
+
+        if (
+                current_thread_id
+                in conversation_ids
+        ):
+            default_index = (
+                conversation_ids.index(
+                    current_thread_id
+                )
+            )
+
+        selected_thread_id = st.selectbox(
+            "选择会话",
+            options=conversation_ids,
+            index=default_index,
+            format_func=lambda thread_id: (
+                title_by_id.get(
+                    thread_id,
+                    thread_id,
+                )
+            ),
+        )
+
+        if st.button(
+                "加载会话",
+                use_container_width=True,
+        ):
+            try:
+                detail = (
+                    client.get_conversation(
+                        selected_thread_id
+                    )
+                )
+
+                st.session_state.thread_id = (
+                    detail["thread_id"]
+                )
+
+                st.session_state.messages = (
+                    detail.get(
+                        "messages",
+                        [],
+                    )
+                )
+
+                st.session_state.pending_approval = (
+                    detail.get(
+                        "pending_approval"
+                    )
+                )
+
+                st.rerun()
+
+            except LifePilotApiError as error:
+                st.error(str(error))
+
+        new_title = st.text_input(
+            "修改会话标题",
+            value=title_by_id.get(
+                selected_thread_id,
+                "",
+            ),
+            max_chars=80,
+            key=(
+                "conversation-title-"
+                f"{selected_thread_id}"
+            ),
+        )
+
+        if st.button(
+                "保存新标题",
+                use_container_width=True,
+                disabled=not new_title.strip(),
+        ):
+            try:
+                client.rename_conversation(
+                    thread_id=(
+                        selected_thread_id
+                    ),
+                    title=new_title,
+                )
+
+                st.success(
+                    "会话标题已更新。"
+                )
+
+                st.rerun()
+
+            except LifePilotApiError as error:
+                st.error(str(error))
+
+        confirm_conversation_delete = (
+            st.checkbox(
+                "我确认删除选中的整个会话",
+                key=(
+                    "confirm-conversation-delete-"
+                    f"{selected_thread_id}"
+                ),
+            )
+        )
+
+        if st.button(
+                "删除会话",
+                use_container_width=True,
+                disabled=(
+                        not confirm_conversation_delete
+                ),
+        ):
+            try:
+                deleted = (
+                    client.delete_conversation(
+                        selected_thread_id
+                    )
+                )
+
+                if deleted:
+                    if (
+                            st.session_state.thread_id
+                            == selected_thread_id
+                    ):
+                        st.session_state.thread_id = (
+                            create_thread_id()
+                        )
+
+                        st.session_state.messages = []
+
+                        st.session_state.pending_approval = (
+                            None
+                        )
+
+                    st.success(
+                        "会话已经删除。"
+                    )
+
+                    st.rerun()
+
+                else:
+                    st.info(
+                        "会话已经不存在。"
+                    )
+
+            except LifePilotApiError as error:
+                st.error(str(error))
+
+    else:
+        st.caption(
+            "还没有历史会话"
+        )
+
+    st.divider()
     st.subheader("个人知识库")
 
     uploaded_file = st.file_uploader(
@@ -294,8 +476,7 @@ if pending_approval is not None:
         pending_approval.get(
             "message",
             (
-                "LifePilot 请求执行"
-                "一项敏感操作。"
+                "LifePilot 请求执行一项敏感操作。"
             ),
         )
     )
@@ -432,8 +613,7 @@ if prompt:
 
             if not complete_response.strip():
                 raise LifePilotApiError(
-                    "后端完成了请求，"
-                    "但没有返回可显示的文本。"
+                    "后端完成了请求，但没有返回可显示的文本。"
                 )
 
             assistant_message = {

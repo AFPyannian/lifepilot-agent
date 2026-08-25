@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 
@@ -445,3 +447,279 @@ def test_resume_chat() -> None:
     )
 
     assert reply == "删除操作已经取消。"
+
+
+def test_list_conversations() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.method == "GET"
+
+        assert (
+            request.url.path
+            == "/api/v1/conversations"
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "conversations": [
+                    {
+                        "thread_id": (
+                            "web-thread-1"
+                        ),
+                        "title": (
+                            "LangGraph学习"
+                        ),
+                        "created_at": (
+                            "2026-08-25"
+                            "T01:00:00+00:00"
+                        ),
+                        "updated_at": (
+                            "2026-08-25"
+                            "T02:00:00+00:00"
+                        ),
+                    }
+                ]
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    conversations = (
+        client.list_conversations()
+    )
+
+    assert conversations == [
+        {
+            "thread_id": "web-thread-1",
+            "title": "LangGraph学习",
+            "created_at": (
+                "2026-08-25"
+                "T01:00:00+00:00"
+            ),
+            "updated_at": (
+                "2026-08-25"
+                "T02:00:00+00:00"
+            ),
+        }
+    ]
+
+
+def test_list_conversations_rejects_invalid_response(
+) -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        return httpx.Response(
+            status_code=200,
+            json={
+                "conversations": {
+                    "thread_id": "invalid"
+                }
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    with pytest.raises(
+        LifePilotApiError,
+        match=(
+            "历史会话响应格式不正确"
+        ),
+    ):
+        client.list_conversations()
+
+
+def test_get_conversation() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.method == "GET"
+
+        assert (
+            request.url.path
+            == (
+                "/api/v1/conversations/"
+                "web:test"
+            )
+        )
+
+        assert (
+            b"web%3Atest"
+            in request.url.raw_path
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "thread_id": "web:test",
+                "title": "测试会话",
+                "created_at": (
+                    "2026-08-25"
+                    "T01:00:00+00:00"
+                ),
+                "updated_at": (
+                    "2026-08-25"
+                    "T02:00:00+00:00"
+                ),
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "你好",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "你好！",
+                    },
+                ],
+                "pending_approval": None,
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    detail = client.get_conversation(
+        thread_id="web:test"
+    )
+
+    assert (
+        detail["thread_id"]
+        == "web:test"
+    )
+
+    assert detail["messages"] == [
+        {
+            "role": "user",
+            "content": "你好",
+        },
+        {
+            "role": "assistant",
+            "content": "你好！",
+        },
+    ]
+
+    assert (
+        detail["pending_approval"]
+        is None
+    )
+
+
+def test_rename_conversation() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.method == "PATCH"
+
+        assert (
+            request.url.path
+            == (
+                "/api/v1/conversations/"
+                "web-thread-1"
+            )
+        )
+
+        request_data = json.loads(
+            request.content.decode(
+                "utf-8"
+            )
+        )
+
+        assert request_data == {
+            "title": "新的会话标题"
+        }
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "thread_id": (
+                    "web-thread-1"
+                ),
+                "title": (
+                    "新的会话标题"
+                ),
+                "created_at": (
+                    "2026-08-25"
+                    "T01:00:00+00:00"
+                ),
+                "updated_at": (
+                    "2026-08-25"
+                    "T03:00:00+00:00"
+                ),
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    result = client.rename_conversation(
+        thread_id="web-thread-1",
+        title="新的会话标题",
+    )
+
+    assert (
+        result["thread_id"]
+        == "web-thread-1"
+    )
+
+    assert (
+        result["title"]
+        == "新的会话标题"
+    )
+
+
+def test_delete_conversation() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.method == "DELETE"
+
+        assert (
+            request.url.path
+            == (
+                "/api/v1/conversations/"
+                "web-thread-1"
+            )
+        )
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "thread_id": (
+                    "web-thread-1"
+                ),
+                "deleted": True,
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        transport=httpx.MockTransport(
+            handler
+        ),
+    )
+
+    deleted = client.delete_conversation(
+        thread_id="web-thread-1"
+    )
+
+    assert deleted is True

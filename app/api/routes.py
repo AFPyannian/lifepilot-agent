@@ -1,6 +1,5 @@
 import logging
 from typing import Any
-from langgraph.types import Command
 
 from fastapi import (
     APIRouter,
@@ -14,10 +13,16 @@ from fastapi.responses import (
 from langchain_core.messages import (
     HumanMessage,
 )
+from langgraph.types import Command
 
 from app.api.execution import (
     extract_latest_ai_reply,
     resume_pending_execution,
+)
+from app.api.interrupts import (
+    extract_invoke_interrupt,
+    find_pending_interrupt,
+    normalize_approval_request,
 )
 from app.api.schemas import (
     ApprovalDecision,
@@ -28,11 +33,6 @@ from app.api.schemas import (
 )
 from app.api.streaming import (
     stream_chat_events,
-)
-from app.api.interrupts import (
-    extract_invoke_interrupt,
-    find_pending_interrupt,
-    normalize_approval_request,
 )
 from app.exceptions import LifePilotError
 
@@ -76,8 +76,17 @@ def chat(
     }
 
     try:
+        # 创建新会话元数据，
+        # 或刷新已有会话的更新时间。
+        _record_conversation(
+            request=request,
+            thread_id=payload.thread_id,
+            message=payload.message,
+        )
+
         with graph_lock:
-            # 首先检查当前会话是否已经存在，等待用户处理的人工审批。
+            # 首先检查当前会话是否存在
+            # 等待用户处理的人工审批。
             pending_interrupt = (
                 find_pending_interrupt(
                     graph=graph,
@@ -91,11 +100,14 @@ def chat(
                         status.HTTP_409_CONFLICT
                     ),
                     detail=(
-                        "当前会话存在等待审批的操作，请先批准或拒绝该操作"
+                        "当前会话存在等待审批的"
+                        "操作，请先批准或拒绝"
+                        "该操作。"
                     ),
                 )
 
-            # 只有确认不是人工审批中断后，才允许使用旧的自动恢复机制。
+            # 只有确认不是人工审批中断后，
+            # 才允许使用旧的自动恢复机制。
             resume_pending_execution(
                 graph=graph,
                 config=config,
@@ -105,14 +117,17 @@ def chat(
                 {
                     "messages": [
                         HumanMessage(
-                            content=payload.message
+                            content=(
+                                payload.message
+                            )
                         )
                     ]
                 },
                 config=config,
             )
 
-            # 本次执行可能刚刚触发 interrupt()，必须检查结果。
+            # 本次执行可能刚刚触发
+            # interrupt()，必须检查结果。
             invoke_interrupt = (
                 extract_invoke_interrupt(
                     result
@@ -125,17 +140,23 @@ def chat(
                         status.HTTP_409_CONFLICT
                     ),
                     detail=(
-                        "本次操作需要用户审批，请使用流式聊天接口获取"
-                        "审批内容，并通过恢复接口批准或拒绝该操作。"
+                        "本次操作需要用户审批，"
+                        "请使用流式聊天接口获取"
+                        "审批内容，并通过恢复接口"
+                        "批准或拒绝该操作。"
                     ),
                 )
 
         reply = extract_latest_ai_reply(
-            result.get("messages", [])
+            result.get(
+                "messages",
+                [],
+            )
         )
 
         logger.info(
-            "Agent API request completed thread_id=%s",
+            "Agent API request completed "
+            "thread_id=%s",
             payload.thread_id,
         )
 
@@ -144,13 +165,15 @@ def chat(
             thread_id=payload.thread_id,
         )
 
-    # 必须单独保留HTTPException。否则上面的409会被下面的通用异常转换成500。
+    # 必须单独保留HTTPException，
+    # 否则409会被转换成500。
     except HTTPException:
         raise
 
     except LifePilotError as error:
         logger.exception(
-            "Expected Agent API error thread_id=%s",
+            "Expected Agent API error "
+            "thread_id=%s",
             payload.thread_id,
         )
 
@@ -164,7 +187,8 @@ def chat(
 
     except Exception as error:
         logger.exception(
-            "Unexpected Agent API error thread_id=%s",
+            "Unexpected Agent API error "
+            "thread_id=%s",
             payload.thread_id,
         )
 
@@ -174,7 +198,8 @@ def chat(
                 .HTTP_500_INTERNAL_SERVER_ERROR
             ),
             detail=(
-                "LifePilot 处理请求时发生内部错误。"
+                "LifePilot 处理请求时"
+                "发生内部错误。"
             ),
         ) from error
 
@@ -200,6 +225,15 @@ def chat_stream(
         _get_graph_dependencies(request)
     )
 
+    # StreamingResponse开始发送后，
+    # 已经无法再可靠修改HTTP状态码。
+    # 因此会话元数据应在创建响应前登记。
+    _record_conversation(
+        request=request,
+        thread_id=payload.thread_id,
+        message=payload.message,
+    )
+
     event_iterator = stream_chat_events(
         graph=graph,
         graph_lock=graph_lock,
@@ -215,6 +249,7 @@ def chat_stream(
             "X-Accel-Buffering": "no",
         },
     )
+
 
 @router.post(
     "/chat/resume",
@@ -236,6 +271,13 @@ def resume_chat(
     }
 
     try:
+        # 审批属于会话中的一次交互，
+        # 因此刷新会话的最近使用时间。
+        _touch_conversation(
+            request=request,
+            thread_id=payload.thread_id,
+        )
+
         with graph_lock:
             existing_interrupt = (
                 find_pending_interrupt(
@@ -353,7 +395,7 @@ def resume_chat(
 def _get_graph_dependencies(
     request: Request,
 ) -> tuple[Any, Any]:
-    """读取 FastAPI 生命周期中创建的 Graph。"""
+    """读取FastAPI生命周期中创建的Graph。"""
 
     graph = getattr(
         request.app.state,
@@ -367,13 +409,92 @@ def _get_graph_dependencies(
         None,
     )
 
-    if graph is None or graph_lock is None:
+    if (
+        graph is None
+        or graph_lock is None
+    ):
         raise HTTPException(
             status_code=(
                 status
                 .HTTP_503_SERVICE_UNAVAILABLE
             ),
-            detail="LifePilot 尚未完成初始化。",
+            detail=(
+                "LifePilot 尚未完成初始化。"
+            ),
         )
 
     return graph, graph_lock
+
+
+def _record_conversation(
+    request: Request,
+    thread_id: str,
+    message: str,
+) -> None:
+    """
+    创建新会话元数据或刷新已有会话时间。
+
+    第一次消息会成为默认标题；
+    后续消息只更新updated_at。
+    """
+
+    repository = getattr(
+        request.app.state,
+        "conversation_repository",
+        None,
+    )
+
+    settings = getattr(
+        request.app.state,
+        "settings",
+        None,
+    )
+
+    # 现有FakeGraph测试不会注入
+    # ConversationRepository和Settings。
+    # 为了不破坏原有测试，缺少测试依赖时跳过。
+    if (
+        repository is None
+        or settings is None
+    ):
+        return
+
+    repository.record_message(
+        owner_id=settings.owner_id,
+        thread_id=thread_id,
+        first_message=message,
+    )
+
+
+def _touch_conversation(
+    request: Request,
+    thread_id: str,
+) -> None:
+    """
+    刷新审批恢复后的会话时间。
+
+    touch不会创建一个不存在的会话。
+    """
+
+    repository = getattr(
+        request.app.state,
+        "conversation_repository",
+        None,
+    )
+
+    settings = getattr(
+        request.app.state,
+        "settings",
+        None,
+    )
+
+    if (
+        repository is None
+        or settings is None
+    ):
+        return
+
+    repository.touch(
+        owner_id=settings.owner_id,
+        thread_id=thread_id,
+    )
