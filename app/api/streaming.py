@@ -48,14 +48,9 @@ def stream_chat_events(
     graph_lock: Any,
     message: str,
     thread_id: str,
+    config: dict[str, Any],
 ) -> Iterator[str]:
     """执行 Agent 并生成 SSE 事件。"""
-
-    config = {
-        "configurable": {
-            "thread_id": thread_id,
-        }
-    }
 
     yield create_sse_event(
         event="start",

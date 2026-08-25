@@ -1,39 +1,16 @@
 import logging
 from typing import Any
 
-from fastapi import (
-    APIRouter,
-    HTTPException,
-    Request,
-    status,
-)
-from fastapi.responses import (
-    StreamingResponse,
-)
-from langchain_core.messages import (
-    HumanMessage,
-)
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
-from app.api.execution import (
-    extract_latest_ai_reply,
-    resume_pending_execution,
-)
-from app.api.interrupts import (
-    extract_invoke_interrupt,
-    find_pending_interrupt,
-    normalize_approval_request,
-)
-from app.api.schemas import (
-    ApprovalDecision,
-    ApprovalResumeResponse,
-    ChatRequest,
-    ChatResponse,
-    HealthResponse,
-)
-from app.api.streaming import (
-    stream_chat_events,
-)
+from app.api.execution import extract_latest_ai_reply, resume_pending_execution
+from app.api.interrupts import extract_invoke_interrupt, find_pending_interrupt, normalize_approval_request
+from app.api.schemas import ApprovalDecision, ApprovalResumeResponse, ChatRequest, ChatResponse, HealthResponse
+from app.api.streaming import stream_chat_events
+from app.api.run_config import build_run_config
 from app.exceptions import LifePilotError
 
 
@@ -61,23 +38,19 @@ def health_check() -> HealthResponse:
     response_model=ChatResponse,
     summary="与 LifePilot Agent 对话",
 )
-def chat(
-    payload: ChatRequest,
-    request: Request,
-) -> ChatResponse:
+def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     graph, graph_lock = (
         _get_graph_dependencies(request)
     )
 
-    config = {
-        "configurable": {
-            "thread_id": payload.thread_id,
-        }
-    }
+    config = build_run_config(
+        request=request,
+        thread_id=payload.thread_id,
+        operation="chat",
+    )
 
     try:
-        # 创建新会话元数据，
-        # 或刷新已有会话的更新时间。
+        # 创建新会话元数据，或刷新已有会话的更新时间。
         _record_conversation(
             request=request,
             thread_id=payload.thread_id,
@@ -85,8 +58,7 @@ def chat(
         )
 
         with graph_lock:
-            # 首先检查当前会话是否存在
-            # 等待用户处理的人工审批。
+            # 首先检查当前会话是否存在等待用户处理的人工审批。
             pending_interrupt = (
                 find_pending_interrupt(
                     graph=graph,
@@ -96,18 +68,11 @@ def chat(
 
             if pending_interrupt is not None:
                 raise HTTPException(
-                    status_code=(
-                        status.HTTP_409_CONFLICT
-                    ),
-                    detail=(
-                        "当前会话存在等待审批的"
-                        "操作，请先批准或拒绝"
-                        "该操作。"
-                    ),
+                    status_code= status.HTTP_409_CONFLICT,
+                    detail= "当前会话存在等待审批的操作，请先批准或拒绝该操作。",
                 )
 
-            # 只有确认不是人工审批中断后，
-            # 才允许使用旧的自动恢复机制。
+            # 只有确认不是人工审批中断后，才允许使用旧的自动恢复机制。
             resume_pending_execution(
                 graph=graph,
                 config=config,
@@ -225,13 +190,17 @@ def chat_stream(
         _get_graph_dependencies(request)
     )
 
-    # StreamingResponse开始发送后，
-    # 已经无法再可靠修改HTTP状态码。
-    # 因此会话元数据应在创建响应前登记。
+    # StreamingResponse开始发送后，已经无法再可靠修改HTTP状态码。因此会话元数据应在创建响应前登记。
     _record_conversation(
         request=request,
         thread_id=payload.thread_id,
         message=payload.message,
+    )
+
+    config = build_run_config(
+        request=request,
+        thread_id=payload.thread_id,
+        operation="stream_chat",
     )
 
     event_iterator = stream_chat_events(
@@ -239,6 +208,7 @@ def chat_stream(
         graph_lock=graph_lock,
         message=payload.message,
         thread_id=payload.thread_id,
+        config=config,
     )
 
     return StreamingResponse(
@@ -264,11 +234,11 @@ def resume_chat(
         _get_graph_dependencies(request)
     )
 
-    config = {
-        "configurable": {
-            "thread_id": payload.thread_id,
-        }
-    }
+    config = build_run_config(
+        request=request,
+        thread_id=payload.thread_id,
+        operation="resume_approval",
+    )
 
     try:
         # 审批属于会话中的一次交互，

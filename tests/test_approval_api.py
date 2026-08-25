@@ -120,11 +120,25 @@ def test_resume_approved_operation() -> None:
 
     assert graph.pending is False
 
-    assert graph.last_config == {
-        "configurable": {
-            "thread_id": "approval-test",
-        }
-    }
+    assert (
+            graph.last_config[
+                "configurable"
+            ]
+            == {
+                "thread_id": "approval-test",
+            }
+    )
+
+    assert (
+            graph.last_config["run_name"]
+            == "lifepilot_resume_approval"
+    )
+
+    assert (
+        graph.last_config[
+            "metadata"
+        ]["request_id"]
+    )
 
 
 def test_resume_rejected_operation() -> None:

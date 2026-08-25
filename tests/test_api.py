@@ -118,11 +118,32 @@ def test_chat_endpoint() -> None:
         "thread_id": "test-thread-001",
     }
 
-    assert fake_graph.last_config == {
-        "configurable": {
-            "thread_id": "test-thread-001",
-        }
-    }
+    assert (
+            fake_graph.last_config[
+                "configurable"
+            ]
+            == {
+                "thread_id": "test-thread-001",
+            }
+    )
+
+    assert (
+            fake_graph.last_config["run_name"]
+            == "lifepilot_chat"
+    )
+
+    assert (
+            fake_graph.last_config[
+                "metadata"
+            ]["thread_id"]
+            == "test-thread-001"
+    )
+
+    assert (
+        fake_graph.last_config[
+            "metadata"
+        ]["request_id"]
+    )
 
 
 def test_chat_strips_message() -> None:

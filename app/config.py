@@ -38,17 +38,25 @@ class Settings(BaseSettings):
     checkpoint_database_path: Path = (PROJECT_ROOT / "data" / "checkpoints.db")
 
     # 日志配置
-    log_level: Literal[
-        "DEBUG",
-        "INFO",
-        "WARNING",
-        "ERROR",
-        "CRITICAL",
-    ] = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
     log_file_path: Path = (PROJECT_ROOT / "logs" / "lifepilot.log")
     log_max_bytes: int = Field(default=1_000_000, gt=0)
     log_backup_count: int = Field(default=3, ge=1)
+
+    # 应用运行环境
+    app_environment: Literal["development", "test", "production"] = "development"
+
+    # LangSmith可观测性
+    langsmith_tracing: bool = False
+    langsmith_api_key: SecretStr | None = None
+    langsmith_project: str = "lifepilot-development"
+    langsmith_endpoint: str = "https://apac.api.smith.langchain.com"
+    langsmith_workspace_id: str | None = None
+
+    # 开启后只记录结构、耗时等信息，不上传输入或输出正文。
+    langsmith_hide_inputs: bool = False
+    langsmith_hide_outputs: bool = False
 
     # LangGraph配置
     langgraph_strict_msgpack: bool = True
@@ -117,6 +125,31 @@ class Settings(BaseSettings):
         if self.knowledge_chunk_overlap >= self.knowledge_chunk_size:
             raise ValueError(
                 "knowledge_chunk_overlap 必须小于 knowledge_chunk_size"
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_langsmith(self) -> "Settings":
+        """校验LangSmith配置。"""
+
+        api_key = ""
+
+        if self.langsmith_api_key is not None:
+            api_key = (
+                self.langsmith_api_key
+                .get_secret_value()
+                .strip()
+            )
+
+        if self.langsmith_tracing and not api_key:
+            raise ValueError(
+                "启用LangSmith追踪时必须配置 LANGSMITH_API_KEY"
+            )
+
+        if self.langsmith_tracing and not self.langsmith_project.strip():
+            raise ValueError(
+                "启用LangSmith追踪时项目名称不能为空"
             )
 
         return self

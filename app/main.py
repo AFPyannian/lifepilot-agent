@@ -1,45 +1,24 @@
 import logging
+from langchain_core.messages import HumanMessage, ToolMessage
 
-from langchain_core.messages import (
-    HumanMessage,
-    ToolMessage,
-)
-
-# LangGraph 状态存档器
-from app.checkpointing import (
-    open_sqlite_checkpointer,
-)
-# 读取项目配置
-from app.config import (
-    apply_runtime_environment,
-    get_settings,
-)
-from app.exceptions import (
-    ConfigurationError,
-    LifePilotError,
-)
+from app.checkpointing import open_sqlite_checkpointer
+from app.config import apply_runtime_environment, get_settings
+from app.exceptions import ConfigurationError, LifePilotError
 from app.graph import build_graph
-from app.logging_config import (
-    configure_logging,
-    shutdown_logging,
-)
+from app.logging_config import configure_logging, shutdown_logging
+from app.observability import configure_observability
 
 # 创建main.py的日志记录器
 logger = logging.getLogger("lifepilot.main")
 
 
-def display_graph_result(
-    result: dict,
-    thread_id: str,
-) -> None:
+def display_graph_result(result: dict, thread_id: str) -> None:
     """统一显示并记录一次Graph执行结果。"""
 
     # 从最新完整状态中取得最后的回答结果
     messages = result.get("messages", [])
     if not messages:
-        print(
-            "\nLifePilot：本轮执行已经完成，但没有生成可显示的消息。"
-        )
+        print("\nLifePilot：本轮执行已经完成，但没有生成可显示的消息。")
         return
     final_message = messages[-1]
 
@@ -74,19 +53,14 @@ def has_pending_execution(
         但tools节点还没有执行完成
     """
     try:
-        snapshot = graph.get_state(
-            config
-        )
+        snapshot = graph.get_state(config)
 
         return bool(snapshot.next)
 
     except Exception:
-        logger.exception(
-            "Failed to inspect pending graph state."
-        )
+        logger.exception("Failed to inspect pending graph state.")
 
-        # 无法确定时按“仍有未完成任务”处理，
-        # 避免继续追加用户消息
+        # 无法确定时按“仍有未完成任务”处理，避免继续追加用户消息
         return True
 
 
@@ -98,9 +72,7 @@ def resume_pending_execution(
     """
     恢复上一次没有完成的Graph执行。
 
-    graph.invoke(None)表示：
-    不追加新的用户消息，
-    直接从当前checkpoint继续运行。
+    graph.invoke(None)表示：不追加新的用户消息，直接从当前checkpoint继续运行。
     """
     snapshot = graph.get_state(
         config
@@ -306,6 +278,8 @@ def main() -> None:
     apply_runtime_environment(settings)
     # 启动日志系统
     configure_logging(settings)
+    #
+    configure_observability(settings)
 
     # 日志: 记录应用启动
     logger.info(
