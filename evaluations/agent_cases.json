@@ -1,0 +1,34 @@
+[
+  {
+    "id": "general_greeting",
+    "input": "你好，请简单介绍一下自己。",
+    "required_tools": [],
+    "allowed_tools": [],
+    "required_answer_keywords": ["LifePilot"],
+    "max_latency_seconds": 30
+  },
+  {
+    "id": "list_todos",
+    "input": "请列出我目前的所有待办事项。",
+    "required_tools": ["list_todos"],
+    "allowed_tools": ["list_todos"],
+    "required_answer_keywords": ["待办"],
+    "max_latency_seconds": 30
+  },
+  {
+    "id": "add_todo",
+    "input": "帮我创建一个学习 LangGraph 状态管理的待办事项。",
+    "required_tools": ["add_todo"],
+    "allowed_tools": ["add_todo"],
+    "required_answer_keywords": ["待办"],
+    "max_latency_seconds": 40
+  },
+  {
+    "id": "add_note",
+    "input": "帮我记录一条笔记：FastAPI 负责提供 HTTP 接口。",
+    "required_tools": ["add_note"],
+    "allowed_tools": ["add_note"],
+    "required_answer_keywords": ["笔记"],
+    "max_latency_seconds": 40
+  }
+]

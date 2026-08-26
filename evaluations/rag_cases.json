@@ -1,0 +1,22 @@
+[
+  {
+    "id": "workflow_framework",
+    "query": "LifePilot 使用什么框架组织 Agent 工作流？",
+    "expected_source": "lifepilot_architecture.md"
+  },
+  {
+    "id": "vector_database",
+    "query": "个人知识库的文本向量保存在哪里？",
+    "expected_source": "lifepilot_architecture.md"
+  },
+  {
+    "id": "python_version",
+    "query": "LifePilot 使用哪个 Python 版本开发？",
+    "expected_source": "python_environment.md"
+  },
+  {
+    "id": "development_ide",
+    "query": "这个项目使用什么 IDE 开发？",
+    "expected_source": "python_environment.md"
+  }
+]

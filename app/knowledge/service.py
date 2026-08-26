@@ -233,6 +233,49 @@ class KnowledgeBaseService:
         self._get_store().delete(ids=document_ids)
         return True
 
+    def close(self) -> None:
+        """
+        关闭底层向量数据库客户端并释放文件句柄。
+
+        该方法可以重复调用。知识库尚未初始化时，
+        调用close不会产生任何影响。
+        """
+        with self._vector_store_lock:
+            vector_store = self._vector_store
+            self._vector_store = None
+
+        if vector_store is None:
+            return
+
+        # 如果未来LangChain Chroma直接提供close，
+        # 优先调用公开方法。
+        close_vector_store = getattr(
+            vector_store,
+            "close",
+            None,
+        )
+
+        if callable(close_vector_store):
+            close_vector_store()
+            return
+
+        # 当前langchain-chroma没有公开close，
+        # 需要关闭其底层chromadb客户端。
+        client = getattr(
+            vector_store,
+            "_client",
+            None,
+        )
+
+        close_client = getattr(
+            client,
+            "close",
+            None,
+        )
+
+        if callable(close_client):
+            close_client()
+
     def _get_store(self) -> Any:
         """
         延迟并且线程安全地创建Chroma。

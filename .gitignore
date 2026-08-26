@@ -54,3 +54,6 @@ models/
 *.db-shm
 *.sqlite3-wal
 *.sqlite3-shm
+
+# Agent evaluation reports
+evaluation_reports/
