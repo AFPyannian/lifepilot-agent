@@ -1,59 +1,51 @@
-# Python 缓存
+# Python 缓存和虚拟环境
 __pycache__/
 *.py[cod]
-
-# 虚拟环境
 .venv/
 venv/
 env/
 
-# API Key 和本地配置
+# 本地密钥和环境配置
 .env
 .env.*
 !.env.example
 
-# PyCharm 本地设置
+# 编辑器配置
 .idea/
 
-# Test and analysis caches
+# 测试、类型检查和覆盖率产物
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-# Build results
+# 构建产物
 build/
 dist/
 *.egg-info/
 
-# Local databases
+# 本地数据库及其运行文件
 *.db
 *.sqlite3
-
-# Operating system files
-.DS_Store
-Thumbs.db
-
-# Application logs
-logs/
-*.log
-
-# Local knowledge documents
-knowledge_base/*
-!knowledge_base/.gitkeep
-
-# Chroma vector database
-data/chroma/
-
-# Local AI models
-models/
-
-# SQLite runtime files
 *.db-wal
 *.db-shm
 *.sqlite3-wal
 *.sqlite3-shm
 
-# Agent evaluation reports
+# 日志文件
+logs/
+*.log
+
+# 本地知识文档和向量数据库
+knowledge_base/*
+!knowledge_base/.gitkeep
+data/chroma/
+
+# 本地模型和评估报告
+models/
 evaluation_reports/
+
+# 操作系统文件
+.DS_Store
+Thumbs.db

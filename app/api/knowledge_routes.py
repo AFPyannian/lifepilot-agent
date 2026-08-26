@@ -1,3 +1,6 @@
+"""提供知识库文档上传、查询和删除接口。"""
+
+
 import logging
 import os
 from pathlib import Path
@@ -77,6 +80,7 @@ async def upload_knowledge_document(
         ),
     ],
 ) -> KnowledgeDocumentResponse:
+    """校验、原子保存并索引上传的知识文档。"""
     service, settings, graph_lock = (
         _get_knowledge_dependencies(request)
     )
@@ -170,11 +174,13 @@ async def upload_knowledge_document(
 async def list_knowledge_documents(
     request: Request,
 ) -> KnowledgeListResponse:
+    """返回当前用户已经索引的知识文档。"""
     service, settings, graph_lock = (
         _get_knowledge_dependencies(request)
     )
 
     def list_documents() -> Any:
+        """在线程池中读取知识文档列表。"""
         with graph_lock:
             return service.list_sources(
                 settings.owner_id
@@ -220,6 +226,7 @@ async def delete_knowledge_document(
     filename: str,
     request: Request,
 ) -> KnowledgeDeleteResponse:
+    """删除知识文档的向量记录和源文件。"""
     service, settings, graph_lock = (
         _get_knowledge_dependencies(request)
     )
@@ -237,6 +244,7 @@ async def delete_knowledge_document(
     )
 
     def delete_document() -> bool:
+        """在应用锁内完成向量和文件删除。"""
         with graph_lock:
             vector_deleted = (
                 service.delete_source(
@@ -296,6 +304,7 @@ async def delete_knowledge_document(
 def _get_knowledge_dependencies(
     request: Request,
 ) -> tuple[Any, Any, Any]:
+    """读取知识库接口依赖。"""
     service = getattr(
         request.app.state,
         "knowledge_service",
@@ -333,6 +342,7 @@ def _get_knowledge_dependencies(
 def _validate_filename(
     raw_filename: str | None,
 ) -> str:
+    """验证文件名长度、字符、保留名称和扩展名。"""
     if raw_filename is None:
         raise HTTPException(
             status_code=(
@@ -414,6 +424,7 @@ def _safe_source_path(
     source_directory: Path,
     filename: str,
 ) -> Path:
+    """确保目标文件位于知识库根目录内。"""
     root = source_directory.resolve()
 
     root.mkdir(
@@ -441,6 +452,7 @@ async def _save_upload_file(
     destination: Path,
     max_file_bytes: int,
 ) -> None:
+    """分块写入临时文件，校验大小后原子替换目标文件。"""
     temporary_path = (
         destination.parent
         / f".upload-{uuid4().hex}.tmp"
@@ -473,8 +485,8 @@ async def _save_upload_file(
                 "不能上传空文件。"
             )
 
-        # 临时文件完整写入后再替换目标，
-        # 避免留下只写了一部分的文件。
+
+        # 原子替换确保目标文件始终处于完整状态。
         os.replace(
             temporary_path,
             destination,

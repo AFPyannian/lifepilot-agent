@@ -1,3 +1,6 @@
+"""验证应用配置解析和约束。"""
+
+
 import pytest
 from pydantic import ValidationError
 

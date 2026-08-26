@@ -1,3 +1,6 @@
+"""验证 LifePilot HTTP 和 SSE 客户端。"""
+
+
 import json
 
 import httpx

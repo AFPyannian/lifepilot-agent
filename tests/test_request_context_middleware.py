@@ -1,3 +1,6 @@
+"""验证请求标识和访问日志中间件。"""
+
+
 from uuid import UUID
 
 from fastapi.testclient import (
@@ -8,7 +11,7 @@ from app.api.server import create_app
 
 
 class FakeGraph:
-    """健康检查不需要真实Graph。"""
+    """提供中间件测试所需的最小图接口。"""
 
 
 def test_response_contains_request_id(
@@ -28,7 +31,7 @@ def test_response_contains_request_id(
         "x-request-id"
     ]
 
-    # 非法UUID会在这里抛出异常。
+
     UUID(request_id)
 
 

@@ -1,3 +1,6 @@
+"""持久化会话元数据。"""
+
+
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -7,7 +10,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class Conversation:
-    """一条会话元数据。"""
+    """表示一条会话元数据记录。"""
 
     owner_id: str
     thread_id: str
@@ -17,12 +20,13 @@ class Conversation:
 
 
 class ConversationRepository:
-    """管理会话标题和时间等业务数据。"""
+    """管理 SQLite 中的会话元数据。"""
 
     def __init__(
         self,
         database_path: str | Path,
     ) -> None:
+        """保存数据库路径并初始化会话表。"""
         self._database_path = Path(
             database_path
         )
@@ -40,11 +44,7 @@ class ConversationRepository:
         thread_id: str,
         first_message: str,
     ) -> None:
-        """
-        创建会话或刷新已有会话时间。
-
-        已有会话不会因为后续消息而覆盖标题。
-        """
+        """根据首条消息创建会话，或刷新已有会话。"""
 
         timestamp = datetime.now(
             timezone.utc
@@ -90,7 +90,7 @@ class ConversationRepository:
         owner_id: str,
         thread_id: str,
     ) -> bool:
-        """刷新会话更新时间。"""
+        """刷新会话最后活动时间。"""
 
         timestamp = datetime.now(
             timezone.utc
@@ -121,7 +121,7 @@ class ConversationRepository:
         owner_id: str,
         limit: int = 50,
     ) -> list[Conversation]:
-        """按最近使用时间列出会话。"""
+        """按最近活动时间返回指定用户的会话。"""
 
         if limit <= 0:
             raise ValueError(
@@ -164,7 +164,7 @@ class ConversationRepository:
         owner_id: str,
         thread_id: str,
     ) -> Conversation | None:
-        """读取一个属于指定用户的会话。"""
+        """读取指定用户拥有的一段会话。"""
 
         with closing(
             self._connect()
@@ -200,7 +200,7 @@ class ConversationRepository:
         thread_id: str,
         title: str,
     ) -> bool:
-        """修改会话标题。"""
+        """修改指定用户拥有的会话标题。"""
 
         clean_title = " ".join(
             title.split()
@@ -248,7 +248,7 @@ class ConversationRepository:
         owner_id: str,
         thread_id: str,
     ) -> bool:
-        """删除会话元数据。"""
+        """删除指定用户拥有的会话元数据。"""
 
         with closing(
             self._connect()
@@ -271,6 +271,7 @@ class ConversationRepository:
     def _connect(
         self,
     ) -> sqlite3.Connection:
+        """打开启用行对象访问的 SQLite 连接。"""
         connection = sqlite3.connect(
             self._database_path
         )
@@ -284,6 +285,7 @@ class ConversationRepository:
     def _initialize_database(
         self,
     ) -> None:
+        """创建会话表和查询索引。"""
         with closing(
             self._connect()
         ) as connection:
@@ -320,6 +322,7 @@ class ConversationRepository:
     def _row_to_conversation(
         row: sqlite3.Row,
     ) -> Conversation:
+        """将数据库行转换为会话对象。"""
         return Conversation(
             owner_id=row["owner_id"],
             thread_id=row["thread_id"],
@@ -340,6 +343,7 @@ class ConversationRepository:
     def _build_title(
         message: str,
     ) -> str:
+        """根据首条消息生成长度受限的默认标题。"""
         normalized = " ".join(
             message.split()
         )

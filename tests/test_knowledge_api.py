@@ -1,3 +1,6 @@
+"""验证知识库文档管理接口。"""
+
+
 from types import SimpleNamespace
 from urllib.parse import quote
 

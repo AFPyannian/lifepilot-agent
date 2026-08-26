@@ -1,3 +1,6 @@
+"""实现 Streamlit 使用的 LifePilot HTTP 与 SSE 客户端。"""
+
+
 import json
 from collections.abc import (
     Iterable,
@@ -10,18 +13,19 @@ import httpx
 
 
 class LifePilotApiError(RuntimeError):
-    """调用 LifePilot API 失败。"""
+    """表示 LifePilot HTTP 或 SSE 请求失败。"""
 
 
 class ApprovalRequired(
     LifePilotApiError
 ):
-    """Agent 暂停并等待用户审批。"""
+    """携带后端返回的待审批操作。"""
 
     def __init__(
         self,
         request: dict[str, Any],
     ) -> None:
+        """保存结构化审批请求。"""
         super().__init__(
             "操作需要用户审批。"
         )
@@ -32,16 +36,16 @@ class ApprovalRequired(
 def iter_sse_events(
     lines: Iterable[str],
 ) -> Iterator[tuple[str, str]]:
-    """解析 SSE 文本行。"""
+    """按 SSE 规范解析事件名称和多行数据。"""
 
     event_name = "message"
     data_lines: list[str] = []
 
     for raw_line in lines:
-        # 兼容 CRLF。
+
         line = raw_line.rstrip("\r")
 
-        # 空行代表一条事件结束。
+
         if line == "":
             if data_lines:
                 yield (
@@ -53,7 +57,7 @@ def iter_sse_events(
             data_lines = []
             continue
 
-        # 以冒号开头的是注释或心跳。
+
         if line.startswith(":"):
             continue
 
@@ -64,8 +68,7 @@ def iter_sse_events(
         if not separator:
             continue
 
-        # SSE规范只忽略冒号后的
-        # 第一个空格。
+
         if value.startswith(" "):
             value = value[1:]
 
@@ -75,8 +78,7 @@ def iter_sse_events(
         elif field == "data":
             data_lines.append(value)
 
-    # 连接关闭前没有最后一个空行时，
-    # 仍然处理最后一条事件。
+
     if data_lines:
         yield (
             event_name,
@@ -85,7 +87,7 @@ def iter_sse_events(
 
 
 class LifePilotApiClient:
-    """调用 LifePilot FastAPI 后端。"""
+    """封装 LifePilot 后端的同步 HTTP 客户端。"""
 
     def __init__(
         self,
@@ -95,6 +97,7 @@ class LifePilotApiClient:
             httpx.BaseTransport | None
         ) = None,
     ) -> None:
+        """校验服务地址并保存超时和测试传输配置。"""
         clean_base_url = (
             base_url.strip().rstrip("/")
         )
@@ -111,11 +114,11 @@ class LifePilotApiClient:
             connect=10.0,
         )
 
-        # 测试时可注入 MockTransport。
+
         self._transport = transport
 
     def is_healthy(self) -> bool:
-        """检查 FastAPI 是否可访问。"""
+        """检查后端健康接口是否可用。"""
 
         try:
             with (
@@ -146,7 +149,7 @@ class LifePilotApiClient:
         content: bytes,
         content_type: str,
     ) -> dict[str, Any]:
-        """上传并导入知识库文档。"""
+        """上传并索引一份知识文档。"""
 
         return self._request_json(
             method="POST",
@@ -165,7 +168,7 @@ class LifePilotApiClient:
     def list_documents(
         self,
     ) -> list[dict[str, Any]]:
-        """读取知识库文档列表。"""
+        """返回知识库文档列表。"""
 
         data = self._request_json(
             method="GET",
@@ -193,7 +196,7 @@ class LifePilotApiClient:
         self,
         filename: str,
     ) -> bool:
-        """通过侧边栏直接删除知识库文档。"""
+        """删除指定知识文档。"""
 
         encoded_filename = quote(
             filename,
@@ -215,7 +218,7 @@ class LifePilotApiClient:
     def list_conversations(
             self,
     ) -> list[dict[str, Any]]:
-        """获取历史会话列表。"""
+        """返回历史会话摘要列表。"""
 
         data = self._request_json(
             method="GET",
@@ -241,7 +244,7 @@ class LifePilotApiClient:
             self,
             thread_id: str,
     ) -> dict[str, Any]:
-        """加载历史会话详情。"""
+        """读取一段历史会话的详细状态。"""
 
         encoded_thread_id = quote(
             thread_id,
@@ -261,7 +264,7 @@ class LifePilotApiClient:
             thread_id: str,
             title: str,
     ) -> dict[str, Any]:
-        """修改会话标题。"""
+        """修改历史会话标题。"""
 
         encoded_thread_id = quote(
             thread_id,
@@ -283,7 +286,7 @@ class LifePilotApiClient:
             self,
             thread_id: str,
     ) -> bool:
-        """删除会话及其执行状态。"""
+        """删除历史会话及其执行状态。"""
 
         encoded_thread_id = quote(
             thread_id,
@@ -307,7 +310,7 @@ class LifePilotApiClient:
         message: str,
         thread_id: str,
     ) -> Iterator[str]:
-        """发送消息并逐段返回 Agent 文本。"""
+        """发送聊天请求并逐段产生模型文本。"""
 
         try:
             with (
@@ -424,8 +427,7 @@ class LifePilotApiClient:
                         if event_name == "done":
                             return
 
-            # 没有收到done、error或
-            # approval_required，说明连接异常。
+
             raise LifePilotApiError(
                 "流式连接意外中断。"
             )
@@ -481,8 +483,7 @@ class LifePilotApiClient:
             "status"
         )
 
-        # 恢复一个操作后，可能还有
-        # 另一个危险操作需要审批。
+
         if (
             response_status
             == "approval_required"
@@ -526,7 +527,7 @@ class LifePilotApiClient:
         path: str,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """发送普通HTTP请求并读取JSON对象。"""
+        """发送普通请求并返回 JSON 对象。"""
 
         try:
             with (
@@ -588,6 +589,7 @@ class LifePilotApiClient:
     def _create_http_client(
         self,
     ) -> httpx.Client:
+        """创建共享基础地址和超时配置的 HTTPX 客户端。"""
         return httpx.Client(
             base_url=self._base_url,
             timeout=self._timeout,
@@ -598,6 +600,7 @@ class LifePilotApiClient:
     def _parse_event_data(
         raw_data: str,
     ) -> dict[str, Any]:
+        """将 SSE 数据解析为 JSON 对象。"""
         try:
             data = json.loads(
                 raw_data
@@ -620,6 +623,7 @@ class LifePilotApiClient:
     def _extract_http_error(
         response: httpx.Response,
     ) -> str:
+        """从错误响应中提取安全的用户提示。"""
         try:
             data = response.json()
 

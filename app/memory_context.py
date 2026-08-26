@@ -1,3 +1,6 @@
+"""将用户资料和长期记忆整理为模型上下文。"""
+
+
 from app.repositories.user_memory_repository import (
     UserMemoryRepository,
 )
@@ -11,7 +14,7 @@ def build_user_memory_context(
     owner_id: str,
     memory_limit: int = 20,
 ) -> str:
-    """Build safe user context for the model."""
+    """读取用户资料和长期记忆，生成受边界标记保护的模型上下文。"""
     profile = repository.get_profile(owner_id)
 
     memories = repository.list_recent(

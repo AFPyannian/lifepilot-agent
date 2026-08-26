@@ -1,3 +1,6 @@
+"""使用 SQLite 持久化用户笔记。"""
+
+
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -7,7 +10,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class NoteItem:
-    """A note stored in the database."""
+    """表示数据库中的一条笔记。"""
 
     id: int
     owner_id: str
@@ -18,12 +21,13 @@ class NoteItem:
 
 
 class NoteRepository:
-    """Manage notes stored in SQLite."""
+    """管理 SQLite 中的用户笔记。"""
 
     def __init__(
         self,
         database_path: str | Path,
     ) -> None:
+        """保存数据库路径并初始化笔记表。"""
         self._database_path = Path(database_path)
 
         self._database_path.parent.mkdir(
@@ -34,7 +38,7 @@ class NoteRepository:
         self._initialize_database()
 
     def _connect(self) -> sqlite3.Connection:
-        """Open a configured SQLite connection."""
+        """打开启用行对象访问的 SQLite 连接。"""
         connection = sqlite3.connect(
             self._database_path
         )
@@ -43,7 +47,7 @@ class NoteRepository:
         return connection
 
     def _initialize_database(self) -> None:
-        """Create the notes table and index."""
+        """创建笔记表和查询索引。"""
         with closing(self._connect()) as connection:
             with connection:
                 connection.execute(
@@ -73,7 +77,7 @@ class NoteRepository:
         title: str,
         content: str,
     ) -> NoteItem:
-        """Create and return a new note."""
+        """创建并返回一条用户笔记。"""
         normalized_title = title.strip()
         normalized_content = content.strip()
 
@@ -133,7 +137,7 @@ class NoteRepository:
         self,
         owner_id: str,
     ) -> list[NoteItem]:
-        """Return all notes belonging to one owner."""
+        """返回指定用户的全部笔记。"""
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
@@ -161,7 +165,7 @@ class NoteRepository:
         owner_id: str,
         note_id: int,
     ) -> NoteItem | None:
-        """Return one note or None."""
+        """读取指定用户的一条笔记。"""
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
@@ -192,7 +196,7 @@ class NoteRepository:
         owner_id: str,
         query: str,
     ) -> list[NoteItem]:
-        """Search note titles and content."""
+        """在指定用户的笔记标题和正文中搜索。"""
         normalized_query = query.strip()
 
         if not normalized_query:
@@ -237,7 +241,7 @@ class NoteRepository:
         title: str | None = None,
         content: str | None = None,
     ) -> NoteItem | None:
-        """Update and return an existing note."""
+        """部分更新并返回一条用户笔记。"""
         existing = self.get_by_id(
             owner_id=owner_id,
             note_id=note_id,
@@ -305,7 +309,7 @@ class NoteRepository:
         owner_id: str,
         note_id: int,
     ) -> bool:
-        """Delete a note belonging to one owner."""
+        """删除指定用户的一条笔记。"""
         with closing(self._connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -326,7 +330,7 @@ class NoteRepository:
     def _row_to_item(
         row: sqlite3.Row,
     ) -> NoteItem:
-        """Convert a database row into a NoteItem."""
+        """将数据库行转换为笔记对象。"""
         return NoteItem(
             id=row["id"],
             owner_id=row["owner_id"],

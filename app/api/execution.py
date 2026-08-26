@@ -1,3 +1,6 @@
+"""封装 LangGraph 执行恢复和回答提取逻辑。"""
+
+
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -17,7 +20,7 @@ def resume_pending_execution(
     graph: Any,
     config: dict[str, Any],
 ) -> None:
-    """恢复当前会话中未完成的 Graph 节点。"""
+    """不追加用户消息，直接恢复会话中未完成的普通节点。"""
 
     snapshot = graph.get_state(config)
 
@@ -30,8 +33,7 @@ def resume_pending_execution(
         snapshot.next,
     )
 
-    # 不追加新的用户消息，
-    # 直接从 Checkpoint 中继续执行。
+
     graph.invoke(
         None,
         config=config,
@@ -50,7 +52,7 @@ def resume_pending_execution(
 def extract_latest_ai_reply(
     messages: Sequence[BaseMessage],
 ) -> str:
-    """提取最后一条有效的 AI 文本回复。"""
+    """从执行结果中提取最后一条非空模型文本。"""
 
     for message in reversed(messages):
         if not isinstance(message, AIMessage):

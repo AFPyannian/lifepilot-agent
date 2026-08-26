@@ -1,3 +1,6 @@
+"""提供同步聊天、流式聊天和审批恢复接口。"""
+
+
 import logging
 from typing import Any
 
@@ -27,6 +30,7 @@ router = APIRouter()
     summary="检查 LifePilot 服务状态",
 )
 def health_check() -> HealthResponse:
+    """返回 LifePilot 服务存活状态。"""
     return HealthResponse(
         status="ok",
         service="lifepilot-agent",
@@ -39,6 +43,7 @@ def health_check() -> HealthResponse:
     summary="与 LifePilot Agent 对话",
 )
 def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    """执行一次同步 Agent 对话，并返回回答或审批请求。"""
     graph, graph_lock = (
         _get_graph_dependencies(request)
     )
@@ -50,7 +55,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     )
 
     try:
-        # 创建新会话元数据，或刷新已有会话的更新时间。
+
         _record_conversation(
             request=request,
             thread_id=payload.thread_id,
@@ -58,7 +63,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         )
 
         with graph_lock:
-            # 首先检查当前会话是否存在等待用户处理的人工审批。
+
             pending_interrupt = (
                 find_pending_interrupt(
                     graph=graph,
@@ -72,7 +77,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
                     detail= "当前会话存在等待审批的操作，请先批准或拒绝该操作。",
                 )
 
-            # 只有确认不是人工审批中断后，才允许使用旧的自动恢复机制。
+
             resume_pending_execution(
                 graph=graph,
                 config=config,
@@ -91,8 +96,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
                 config=config,
             )
 
-            # 本次执行可能刚刚触发
-            # interrupt()，必须检查结果。
+
             invoke_interrupt = (
                 extract_invoke_interrupt(
                     result
@@ -130,8 +134,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             thread_id=payload.thread_id,
         )
 
-    # 必须单独保留HTTPException，
-    # 否则409会被转换成500。
+
     except HTTPException:
         raise
 
@@ -186,11 +189,12 @@ def chat_stream(
     payload: ChatRequest,
     request: Request,
 ) -> StreamingResponse:
+    """创建逐段返回 Agent 输出的 SSE 响应。"""
     graph, graph_lock = (
         _get_graph_dependencies(request)
     )
 
-    # StreamingResponse开始发送后，已经无法再可靠修改HTTP状态码。因此会话元数据应在创建响应前登记。
+
     _record_conversation(
         request=request,
         thread_id=payload.thread_id,
@@ -230,6 +234,7 @@ def resume_chat(
     payload: ApprovalDecision,
     request: Request,
 ) -> ApprovalResumeResponse:
+    """根据用户决定恢复等待审批的 Agent 执行。"""
     graph, graph_lock = (
         _get_graph_dependencies(request)
     )
@@ -241,8 +246,8 @@ def resume_chat(
     )
 
     try:
-        # 审批属于会话中的一次交互，
-        # 因此刷新会话的最近使用时间。
+
+
         _touch_conversation(
             request=request,
             thread_id=payload.thread_id,
@@ -278,8 +283,7 @@ def resume_chat(
                 config=config,
             )
 
-            # 一次请求可能涉及多个危险工具，
-            # 恢复一个后仍可能出现下一个审批。
+
             pending_interrupt = (
                 extract_invoke_interrupt(
                     result
@@ -365,7 +369,7 @@ def resume_chat(
 def _get_graph_dependencies(
     request: Request,
 ) -> tuple[Any, Any]:
-    """读取FastAPI生命周期中创建的Graph。"""
+    """读取 Agent 图和并发锁。"""
 
     graph = getattr(
         request.app.state,
@@ -401,12 +405,7 @@ def _record_conversation(
     thread_id: str,
     message: str,
 ) -> None:
-    """
-    创建新会话元数据或刷新已有会话时间。
-
-    第一次消息会成为默认标题；
-    后续消息只更新updated_at。
-    """
+    """创建会话元数据或刷新最后活动时间。"""
 
     repository = getattr(
         request.app.state,
@@ -420,9 +419,7 @@ def _record_conversation(
         None,
     )
 
-    # 现有FakeGraph测试不会注入
-    # ConversationRepository和Settings。
-    # 为了不破坏原有测试，缺少测试依赖时跳过。
+
     if (
         repository is None
         or settings is None
@@ -440,11 +437,7 @@ def _touch_conversation(
     request: Request,
     thread_id: str,
 ) -> None:
-    """
-    刷新审批恢复后的会话时间。
-
-    touch不会创建一个不存在的会话。
-    """
+    """刷新已经存在的会话活动时间。"""
 
     repository = getattr(
         request.app.state,

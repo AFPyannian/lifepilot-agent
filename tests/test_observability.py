@@ -1,3 +1,6 @@
+"""验证 LangSmith 运行环境配置。"""
+
+
 import os
 
 import pytest

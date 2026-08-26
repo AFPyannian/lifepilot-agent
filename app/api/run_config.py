@@ -1,3 +1,6 @@
+"""构造 LangGraph 与 LangSmith 共用的运行配置。"""
+
+
 from typing import Any
 
 from fastapi import Request
@@ -8,12 +11,7 @@ def build_run_config(
     thread_id: str,
     operation: str,
 ) -> dict[str, Any]:
-    """
-    构造LangGraph运行配置。
-
-    configurable用于checkpoint；
-    tags和metadata用于LangSmith。
-    """
+    """构造 Checkpoint、追踪标签和请求元数据配置。"""
 
     settings = getattr(
         request.app.state,

@@ -1,10 +1,13 @@
+"""解析并规范化 LangGraph 人工审批中断。"""
+
+
 from typing import Any
 
 
 def get_interrupt_value(
     interrupt_object: Any,
 ) -> Any:
-    """从 LangGraph Interrupt 中读取业务值。"""
+    """从不同版本的 LangGraph Interrupt 对象中读取业务值。"""
 
     return getattr(
         interrupt_object,
@@ -16,9 +19,9 @@ def get_interrupt_value(
 def extract_invoke_interrupt(
     result: Any,
 ) -> Any | None:
-    """从 invoke() 的执行结果中提取中断。"""
+    """从图调用结果中提取本轮产生的中断。"""
 
-    # 兼容 LangGraph v2 GraphOutput。
+
     output_interrupts = getattr(
         result,
         "interrupts",
@@ -30,7 +33,7 @@ def extract_invoke_interrupt(
             output_interrupts[0]
         )
 
-    # 兼容当前项目使用的字典结果。
+
     if isinstance(result, dict):
         interrupts = result.get(
             "__interrupt__",
@@ -49,7 +52,7 @@ def find_pending_interrupt(
     graph: Any,
     config: dict[str, Any],
 ) -> Any | None:
-    """从已保存的 Graph 状态中查找审批中断。"""
+    """从已保存的图状态中查找尚未处理的中断。"""
 
     snapshot = graph.get_state(
         config
@@ -77,7 +80,7 @@ def find_pending_interrupt(
 def normalize_approval_request(
     value: Any,
 ) -> dict[str, Any]:
-    """确保审批请求可以作为 JSON 返回。"""
+    """将审批中断转换为稳定的 JSON 字典。"""
 
     if isinstance(value, dict):
         return value

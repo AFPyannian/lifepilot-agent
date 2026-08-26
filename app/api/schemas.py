@@ -1,3 +1,6 @@
+"""定义 LifePilot HTTP API 的请求和响应模型。"""
+
+
 from typing import Any, Literal
 from datetime import datetime
 
@@ -5,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class ChatRequest(BaseModel):
-    """Agent 对话请求。"""
+    """表示一轮 Agent 对话请求。"""
 
     message: str = Field(
         min_length=1,
@@ -31,6 +34,7 @@ class ChatRequest(BaseModel):
         cls,
         value: Any,
     ) -> Any:
+        """清理消息和会话标识两端的空白。"""
         if isinstance(value, str):
             return value.strip()
 
@@ -38,21 +42,21 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Agent 对话响应。"""
+    """表示一轮同步 Agent 对话结果。"""
 
     reply: str
     thread_id: str
 
 
 class HealthResponse(BaseModel):
-    """服务健康检查响应。"""
+    """表示服务健康状态。"""
 
     status: str
     service: str
 
 
 class KnowledgeDocumentResponse(BaseModel):
-    """文档上传和导入结果。"""
+    """表示知识文档导入结果。"""
 
     filename: str
     chunk_count: int
@@ -60,27 +64,27 @@ class KnowledgeDocumentResponse(BaseModel):
 
 
 class KnowledgeDocumentItem(BaseModel):
-    """知识库中的一个文档。"""
+    """表示知识库中的一份文档摘要。"""
 
     filename: str
     chunk_count: int
 
 
 class KnowledgeListResponse(BaseModel):
-    """知识库文档列表。"""
+    """表示知识文档列表。"""
 
     documents: list[KnowledgeDocumentItem]
 
 
 class KnowledgeDeleteResponse(BaseModel):
-    """知识库文档删除结果。"""
+    """表示知识文档删除结果。"""
 
     filename: str
     deleted: bool
 
 
 class ApprovalDecision(BaseModel):
-    """批准或拒绝一个中断操作。"""
+    """表示用户对待审批操作的决定。"""
 
     thread_id: str = Field(
         min_length=1,
@@ -92,7 +96,7 @@ class ApprovalDecision(BaseModel):
 
 
 class ApprovalResumeResponse(BaseModel):
-    """恢复执行后的结果。"""
+    """表示审批恢复后的执行状态。"""
 
     status: Literal[
         "completed",
@@ -107,7 +111,7 @@ class ApprovalResumeResponse(BaseModel):
     ) = None
 
 class ConversationSummary(BaseModel):
-    """会话列表中的摘要。"""
+    """表示历史会话列表中的摘要。"""
 
     thread_id: str
     title: str
@@ -116,7 +120,7 @@ class ConversationSummary(BaseModel):
 
 
 class ConversationListResponse(BaseModel):
-    """历史会话列表。"""
+    """表示历史会话列表。"""
 
     conversations: list[
         ConversationSummary
@@ -124,7 +128,7 @@ class ConversationListResponse(BaseModel):
 
 
 class ConversationMessage(BaseModel):
-    """前端可以显示的一条消息。"""
+    """表示前端可展示的一条会话消息。"""
 
     role: Literal[
         "user",
@@ -135,7 +139,7 @@ class ConversationMessage(BaseModel):
 
 
 class ConversationDetailResponse(BaseModel):
-    """会话消息及待审批状态。"""
+    """表示会话消息及其待审批状态。"""
 
     thread_id: str
     title: str
@@ -152,7 +156,7 @@ class ConversationDetailResponse(BaseModel):
 
 
 class RenameConversationRequest(BaseModel):
-    """修改会话标题。"""
+    """表示会话重命名请求。"""
 
     title: str = Field(
         min_length=1,
@@ -168,6 +172,7 @@ class RenameConversationRequest(BaseModel):
         cls,
         value: Any,
     ) -> Any:
+        """去除标题两端空白并拒绝空标题。"""
         if not isinstance(value, str):
             return value
 
@@ -184,7 +189,7 @@ class RenameConversationRequest(BaseModel):
 
 
 class DeleteConversationResponse(BaseModel):
-    """删除会话结果。"""
+    """表示历史会话删除结果。"""
 
     thread_id: str
     deleted: bool

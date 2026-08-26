@@ -1,3 +1,6 @@
+"""验证会话元数据仓储。"""
+
+
 from pathlib import Path
 
 from app.repositories.conversation_repository import (

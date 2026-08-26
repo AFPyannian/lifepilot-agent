@@ -1,3 +1,6 @@
+"""导出 LifePilot Agent 的工具工厂。"""
+
+
 from app.tools.knowledge_tools import (
     create_knowledge_tools,
 )

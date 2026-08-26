@@ -1,3 +1,6 @@
+"""运行 Agent 工具轨迹和回答质量评估。"""
+
+
 import argparse
 import json
 import sys
@@ -27,14 +30,14 @@ REPORT_DIRECTORY = PROJECT_ROOT / "evaluation_reports"
 
 
 def load_cases() -> list[dict[str, Any]]:
-    """读取Agent评估数据集。"""
+    """读取 Agent 离线评估数据集。"""
     return json.loads(
         CASES_PATH.read_text(encoding="utf-8")
     )
 
 
 def extract_tool_names(messages: list[Any]) -> list[str]:
-    """从Agent消息轨迹中提取工具名称。"""
+    """从模型消息轨迹中提取工具名称。"""
     tool_names: list[str] = []
 
     for message in messages:
@@ -51,7 +54,7 @@ def extract_tool_names(messages: list[Any]) -> list[str]:
 
 
 def extract_final_reply(messages: list[Any]) -> str:
-    """从消息列表中提取最后一条有效模型回复。"""
+    """从消息轨迹中提取最后一条非空模型回复。"""
     for message in reversed(messages):
         if not isinstance(message, AIMessage):
             continue
@@ -66,7 +69,7 @@ def extract_final_reply(messages: list[Any]) -> str:
 
 
 def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
-    """执行并评价一个Agent用例。"""
+    """运行并评价一个 Agent 用例。"""
     thread_id = f"eval-{case['id']}-{uuid4().hex}"
 
     config = {
@@ -194,7 +197,7 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
 def print_result(
     result: dict[str, Any],
 ) -> None:
-    """在控制台打印单个用例结果。"""
+    """在控制台输出一个评估用例的摘要。"""
     status = (
         "PASS"
         if result["passed"]
@@ -214,7 +217,7 @@ def print_result(
 
 
 def write_report(results: list[dict[str, Any]]) -> Path:
-    """生成JSON评估报告。"""
+    """将评估结果写入带时间戳的 JSON 报告。"""
     REPORT_DIRECTORY.mkdir(
         parents=True,
         exist_ok=True,
@@ -252,6 +255,7 @@ def write_report(results: list[dict[str, Any]]) -> Path:
 
 
 def main() -> None:
+    """在隔离数据库中运行 Agent 评估并应用通过率门槛。"""
     parser = argparse.ArgumentParser(
         description="运行LifePilot Agent离线评估",
     )

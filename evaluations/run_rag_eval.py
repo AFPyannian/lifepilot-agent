@@ -1,3 +1,6 @@
+"""运行知识库文档召回评估。"""
+
+
 import json
 import sys
 from pathlib import Path
@@ -26,7 +29,7 @@ CASES_PATH = (
 
 
 def load_cases() -> list[dict[str, Any]]:
-    """读取RAG评估数据集。"""
+    """读取 RAG 文档召回评估数据集。"""
     return json.loads(
         CASES_PATH.read_text(
             encoding="utf-8"
@@ -35,6 +38,7 @@ def load_cases() -> list[dict[str, Any]]:
 
 
 def main() -> None:
+    """在临时 Chroma 数据库中运行 Hit@1 召回评估。"""
     cases = load_cases()
     results: list[dict[str, Any]] = []
 
@@ -124,8 +128,9 @@ def main() -> None:
                 )
 
         finally:
-            # 必须在TemporaryDirectory开始删除前，
-            # 释放Chroma对chroma.sqlite3的占用。
+
+
+            # 删除临时目录前先释放 Chroma 文件句柄。
             service.close()
 
     passed_count = sum(

@@ -1,3 +1,6 @@
+"""配置控制台日志和轮转文件日志。"""
+
+
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -10,7 +13,7 @@ LOGGER_NAMESPACE = "lifepilot"
 def configure_logging(
     settings: Settings,
 ) -> None:
-    """Configure console and rotating file logging."""
+    """配置控制台与轮转文件处理器，并返回应用日志记录器。"""
     settings.log_file_path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -64,7 +67,7 @@ def configure_logging(
 
 
 def shutdown_logging() -> None:
-    """Flush and close LifePilot log handlers."""
+    """刷新并关闭 LifePilot 创建的日志处理器。"""
     application_logger = logging.getLogger(
         LOGGER_NAMESPACE
     )

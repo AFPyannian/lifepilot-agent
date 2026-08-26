@@ -1,3 +1,6 @@
+"""验证日志系统配置和关闭行为。"""
+
+
 import logging
 
 from app.config import Settings

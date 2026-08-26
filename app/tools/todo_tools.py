@@ -1,3 +1,6 @@
+"""创建供 Agent 管理用户待办事项的工具。"""
+
+
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
@@ -7,14 +10,11 @@ from app.repositories.todo_repository import (
 
 
 def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseTool]:
-    """Create todo tools for one specific owner."""
+    """为指定用户创建待办事项工具。"""
 
     @tool
     def add_todo(task: str) -> str:
-        """
-        添加一条新设待办事项：当用户要求记录、添加或创建待办事项时使用。
-            Args: task 是需要添加的具体待办内容。
-        """
+        """创建待办事项；仅在用户明确要求添加或保存待办时调用。"""
         try:
             todo = repository.add(
                 owner_id=owner_id,
@@ -31,9 +31,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
 
     @tool
     def list_todos() -> str:
-        """
-        查看当前所有待办事项：当用户要求查看、列出或检查待办事项时使用。
-        """
+        """列出当前用户的全部待办及其完成状态。"""
         todos = repository.list_all(owner_id)
 
         if not todos:
@@ -58,14 +56,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
 
     @tool
     def complete_todo(todo_id: int) -> str:
-        """把一条待办事项标记为已完成。
-
-        只有用户明确要求完成某条待办时才使用。
-        如果用户没有提供任务ID，应先询问或查看待办列表。
-
-        Args:
-            todo_id: 需要标记为完成的待办ID。
-        """
+        """将当前用户指定编号的待办标记为完成。"""
         was_updated = repository.mark_completed(
             owner_id=owner_id,
             todo_id=todo_id,
@@ -84,11 +75,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
 
     @tool
     def delete_todo(todo_id: int) -> str:
-        """
-        功能: 永久删除一条待办事项，执行前必须获得用户审批。
-        Args:
-            todo_id: 需要删除的待办ID。
-        """
+        """请求永久删除一条待办；执行前必须获得用户审批。"""
         decision = interrupt(
             {
                 "kind": "tool_approval",

@@ -1,3 +1,6 @@
+"""导出知识库服务及其工厂函数。"""
+
+
 from app.config import Settings
 from app.knowledge.service import (
     IngestionResult,
@@ -12,7 +15,7 @@ from app.knowledge.vector_store import (
 def create_knowledge_base_service(
     settings: Settings,
 ) -> KnowledgeBaseService:
-    """根据统一配置创建知识库服务。"""
+    """根据应用配置创建知识库服务。"""
     return KnowledgeBaseService(
         source_directory=settings.knowledge_source_directory,
         vector_store_factory=lambda: create_knowledge_vector_store(

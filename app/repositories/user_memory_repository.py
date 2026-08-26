@@ -1,3 +1,6 @@
+"""使用 SQLite 持久化用户资料和长期记忆。"""
+
+
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -14,32 +17,33 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class UserProfile:
-    """单个用户的结构化档案"""
+    """表示用户的结构化资料。"""
 
-    owner_id: str                   # 用户ID
-    display_name: str | None        # 用户名称
-    occupation: str | None          # 用户身份
-    current_goal: str | None        # 当前目标
-    response_style: str | None      # 回答风格偏好
-    updated_at: str                 # 用户资料最后更新时间
+    owner_id: str
+    display_name: str | None
+    occupation: str | None
+    current_goal: str | None
+    response_style: str | None
+    updated_at: str
 
 
 @dataclass(frozen=True)
 class UserMemory:
-    """用户的单条长期记忆事实"""
+    """表示一条用户长期记忆。"""
 
-    id: int                         # 用户单条记忆ID
-    owner_id: str                   # 用户ID
-    category: str                   # 单条记忆类型
-    content: str                    # 单条记忆内容
-    created_at: str                 # 单条记忆首次创建时间
-    updated_at: str                 # 单条记忆最后修改时间
+    id: int
+    owner_id: str
+    category: str
+    content: str
+    created_at: str
+    updated_at: str
 
 
 class UserMemoryRepository:
-    """使用 SQLite 存储用户档案和长期记忆"""
+    """管理 SQLite 中的用户资料和长期记忆。"""
 
     def __init__(self,database_path: str | Path) -> None:
+        """保存数据库路径并初始化记忆相关数据表。"""
         self._database_path = Path(database_path)
 
         self._database_path.parent.mkdir(
@@ -50,6 +54,7 @@ class UserMemoryRepository:
         self._initialize_database()
 
     def _connect(self) -> sqlite3.Connection:
+        """打开启用行对象访问的 SQLite 连接。"""
         connection = sqlite3.connect(
             self._database_path
         )
@@ -58,6 +63,7 @@ class UserMemoryRepository:
         return connection
 
     def _initialize_database(self) -> None:
+        """创建用户资料、长期记忆及其索引。"""
         with closing(self._connect()) as connection:
             with connection:
                 connection.execute(
@@ -105,7 +111,7 @@ class UserMemoryRepository:
         self,
         owner_id: str,
     ) -> UserProfile | None:
-        """Return the user's profile."""
+        """读取指定用户的结构化资料。"""
         with closing(self._connect()) as connection:
             row = connection.execute(
                 """
@@ -135,7 +141,7 @@ class UserMemoryRepository:
         current_goal: str | None = None,
         response_style: str | None = None,
     ) -> UserProfile:
-        """Create or partially update a profile."""
+        """创建或部分更新用户资料。"""
         if all(
             value is None
             for value in (
@@ -246,7 +252,7 @@ class UserMemoryRepository:
         category: str,
         content: str,
     ) -> UserMemory:
-        """Add a long-term memory or return its duplicate."""
+        """添加长期记忆，重复内容则返回已有记录。"""
         normalized_category = category.strip()
         normalized_content = content.strip()
 
@@ -343,7 +349,7 @@ class UserMemoryRepository:
         owner_id: str,
         limit: int = 20,
     ) -> list[UserMemory]:
-        """Return recent memories for one user."""
+        """返回指定用户最近更新的长期记忆。"""
         safe_limit = max(
             1,
             min(limit, 100),
@@ -380,7 +386,7 @@ class UserMemoryRepository:
         owner_id: str,
         query: str,
     ) -> list[UserMemory]:
-        """Search memory categories and content."""
+        """在记忆分类和内容中搜索。"""
         normalized_query = query.strip()
 
         if not normalized_query:
@@ -423,7 +429,7 @@ class UserMemoryRepository:
         owner_id: str,
         memory_id: int,
     ) -> bool:
-        """Delete one long-term memory."""
+        """删除指定用户的一条长期记忆。"""
         with closing(self._connect()) as connection:
             with connection:
                 cursor = connection.execute(
@@ -446,7 +452,7 @@ class UserMemoryRepository:
         old_value: str | None,
         field_name: str,
     ) -> str | None:
-        """Merge and validate one profile field."""
+        """合并并校验一个可选资料字段。"""
         if new_value is None:
             return old_value
 
@@ -468,6 +474,7 @@ class UserMemoryRepository:
     def _row_to_profile(
         row: sqlite3.Row,
     ) -> UserProfile:
+        """将数据库行转换为用户资料对象。"""
         return UserProfile(
             owner_id=row["owner_id"],
             display_name=row["display_name"],
@@ -481,6 +488,7 @@ class UserMemoryRepository:
     def _row_to_memory(
         row: sqlite3.Row,
     ) -> UserMemory:
+        """将数据库行转换为长期记忆对象。"""
         return UserMemory(
             id=row["id"],
             owner_id=row["owner_id"],

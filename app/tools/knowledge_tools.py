@@ -1,3 +1,6 @@
+"""创建供 Agent 管理和检索知识库的工具。"""
+
+
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
@@ -8,18 +11,10 @@ def create_knowledge_tools(
     service: KnowledgeBaseService,
     owner_id: str,
 ) -> list[BaseTool]:
-    """
-    创建知识库Agent工具。
-
-        owner_id在创建工具时固定，模型不能自行指定要访问哪个用户的数据。
-    """
+    """为指定用户创建知识库工具。"""
     @tool
     def ingest_knowledge_document(filename: str) -> str:
-        """
-        将 knowledge_base 目录中的文档导入个人知识库。
-
-            filename 必须是文件名，例如 interview_notes.md，不应包含目录路径。
-        """
+        """导入知识库目录中的文档；仅在用户明确要求导入文件时调用。"""
         result = service.ingest(
             owner_id=owner_id,
             filename=filename,
@@ -38,11 +33,7 @@ def create_knowledge_tools(
 
     @tool
     def search_knowledge_base(query: str) -> str:
-        """
-        在用户的个人知识库中检索与问题相关的文档片段。
-
-            当问题涉及用户提供的学习资料、项目文档、简历、笔记或其他本地文件时，应优先调用本工具。
-        """
+        """检索个人文档内容；涉及用户资料或知识文件的问题应调用此工具。"""
         documents = service.search(
             owner_id=owner_id,
             query=query,
@@ -74,7 +65,7 @@ def create_knowledge_tools(
 
     @tool
     def list_knowledge_documents() -> str:
-        """查看当前个人知识库中已经导入的文档。"""
+        """列出当前用户已经导入知识库的文档。"""
         sources = service.list_sources(owner_id)
 
         if not sources:
@@ -88,9 +79,7 @@ def create_knowledge_tools(
 
     @tool
     def delete_knowledge_document(filename: str) -> str:
-        """
-        从个人知识库中删除指定文档的所有文本块，执行前必须获得用户审批。
-        """
+        """请求永久删除知识文档；执行前必须获得用户审批。"""
         decision = interrupt(
             {
                 "kind": "tool_approval",

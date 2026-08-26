@@ -1,3 +1,6 @@
+"""验证 SQLite Checkpointer 的持久化行为。"""
+
+
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -20,14 +23,14 @@ from app.repositories.user_memory_repository import (
 
 
 class FakeChatModel:
-    """A deterministic model used without an API."""
+    """提供无需外部 API 的确定性测试模型。"""
 
     def bind_tools(self, tools):
-        """Accept tools without using them."""
+        """接收工具并返回当前测试模型。"""
         return self
 
     def invoke(self, messages):
-        """Return the number of user messages seen."""
+        """返回包含用户消息数量的固定回答。"""
         human_messages = [
             message
             for message in messages

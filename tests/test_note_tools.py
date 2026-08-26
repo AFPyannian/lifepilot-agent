@@ -1,3 +1,6 @@
+"""验证笔记工具及删除审批。"""
+
+
 from app.repositories.note_repository import (
     NoteRepository,
 )
@@ -154,7 +157,6 @@ def test_delete_note_approved(
     tmp_path,
     monkeypatch,
 ):
-    """用户批准后真正删除笔记。"""
 
     monkeypatch.setattr(
         "app.tools.note_tools.interrupt",
@@ -194,7 +196,6 @@ def test_delete_note_rejected(
     tmp_path,
     monkeypatch,
 ):
-    """用户拒绝后不得删除笔记。"""
 
     captured_request = {}
 
@@ -234,7 +235,7 @@ def test_delete_note_rejected(
         "操作已取消。"
     )
 
-    # 拒绝后笔记必须仍然存在。
+
     note_result = tools[
         "get_note"
     ].invoke(
@@ -262,7 +263,6 @@ def test_delete_missing_note_after_approval(
     tmp_path,
     monkeypatch,
 ):
-    """批准后仍应正确处理不存在的笔记。"""
 
     monkeypatch.setattr(
         "app.tools.note_tools.interrupt",

@@ -1,3 +1,6 @@
+"""提供会话列表、读取、重命名和删除接口。"""
+
+
 from collections.abc import Sequence
 from typing import Annotated, Any
 
@@ -49,6 +52,7 @@ ThreadIdPath = Annotated[
 def list_conversations(
     request: Request,
 ) -> ConversationListResponse:
+    """返回当前用户的历史会话摘要。"""
     (
         repository,
         settings,
@@ -93,6 +97,7 @@ def get_conversation(
     thread_id: ThreadIdPath,
     request: Request,
 ) -> ConversationDetailResponse:
+    """返回会话消息和待处理审批状态。"""
     (
         repository,
         settings,
@@ -173,6 +178,7 @@ def rename_conversation(
     payload: RenameConversationRequest,
     request: Request,
 ) -> ConversationSummary:
+    """修改当前用户拥有的会话标题。"""
     (
         repository,
         settings,
@@ -230,6 +236,7 @@ def delete_conversation(
     thread_id: ThreadIdPath,
     request: Request,
 ) -> DeleteConversationResponse:
+    """删除当前用户拥有的会话元数据及全部 Checkpoint。"""
     (
         repository,
         settings,
@@ -242,8 +249,7 @@ def delete_conversation(
         thread_id=thread_id,
     )
 
-    # 先检查业务元数据，可以避免一个用户
-    # 删除不属于自己的checkpoint。
+
     if conversation is None:
         return DeleteConversationResponse(
             thread_id=thread_id,
@@ -268,8 +274,8 @@ def delete_conversation(
         )
 
     with graph_lock:
-        # 使用公开接口，不直接操作
-        # LangGraph内部数据库表。
+
+
         checkpointer.delete_thread(
             thread_id
         )
@@ -292,6 +298,7 @@ def delete_conversation(
 def _get_dependencies(
     request: Request,
 ) -> tuple[Any, Any, Any, Any]:
+    """读取会话接口依赖，并在未初始化时返回服务不可用错误。"""
     repository = getattr(
         request.app.state,
         "conversation_repository",
@@ -343,6 +350,7 @@ def _get_dependencies(
 def _convert_messages(
     messages: Sequence[Any],
 ) -> list[ConversationMessage]:
+    """将内部消息转换为前端可展示的用户和助手消息。"""
     result: list[
         ConversationMessage
     ] = []
@@ -361,8 +369,8 @@ def _convert_messages(
             role = "assistant"
 
         else:
-            # ToolMessage、SystemMessage等
-            # 内部消息不直接展示。
+
+
             continue
 
         content = _content_to_text(
@@ -385,6 +393,7 @@ def _convert_messages(
 def _content_to_text(
     content: Any,
 ) -> str:
+    """将字符串或内容块统一转换为纯文本。"""
     if isinstance(content, str):
         return content.strip()
 

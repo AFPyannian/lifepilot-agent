@@ -1,3 +1,6 @@
+"""实现知识文档导入、检索、列举和删除服务。"""
+
+
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
@@ -13,7 +16,7 @@ from app.knowledge.loaders import SUPPORTED_SUFFIXES, load_source_documents
 
 @dataclass(frozen=True)
 class IngestionResult:
-    """文档导入结果"""
+    """记录文档索引结果。"""
     source_name: str
     chunk_count: int
     already_indexed: bool
@@ -21,24 +24,14 @@ class IngestionResult:
 
 @dataclass(frozen=True)
 class KnowledgeSource:
-    """知识库文档摘要"""
+    """记录知识文档摘要。"""
     source_name: str
     chunk_count: int
     file_hash: str
 
 
 class KnowledgeBaseService:
-    """
-        个人知识库业务服务。
-
-        负责：
-        1. 检查文件；
-        2. 读取文件；
-        3. 切分文本；
-        4. 写入Chroma；
-        5. 检索文档；
-        6. 列出和删除知识库文档。
-    """
+    """协调文档校验、切分和向量存储操作。"""
     def __init__(
         self,
         source_directory: Path,
@@ -48,22 +41,22 @@ class KnowledgeBaseService:
         retrieval_k: int = 4,
         max_file_bytes: int = 20_000_000,
     ) -> None:
-        # 将知识库目录转换成绝对路径
+
+        """保存知识库配置并创建中文文本切分器。"""
         self._source_directory = source_directory.resolve()
 
         self._source_directory.mkdir(parents=True, exist_ok=True)
 
-        # 使用工厂函数延迟创建Chroma
+
         self._vector_store_factory = vector_store_factory
         self._vector_store: Any | None = None
         self._retrieval_k = retrieval_k
         self._max_file_bytes = max_file_bytes
 
-        # 防止多个知识库工具同时首次访问时，
-        # 重复创建Embedding模型和Chroma客户端。
+
         self._vector_store_lock = Lock()
 
-        # 中文文本切分器
+
         self._text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -75,16 +68,14 @@ class KnowledgeBaseService:
         )
 
     def ingest(self, owner_id: str, filename: str) -> IngestionResult:
-        """
-        将knowledge_base目录中的文档导入Chroma。这里只接收文件名，不接收完整路径。
-        """
+        """索引文档，并以内容哈希避免重复处理。"""
         source_path = self._resolve_source(filename)
 
-        # 根据文件内容计算哈希值
+
         file_hash = sha256(source_path.read_bytes()).hexdigest()
 
         store = self._get_store()
-        # 查看同一用户是否已经导入过同名文档
+
         existing = store.get(
             where={
                 "$and": [
@@ -97,7 +88,7 @@ class KnowledgeBaseService:
         existing_ids = existing.get("ids", [])
         existing_metadata = existing.get("metadatas", [])
 
-        # 文件名相同且内容哈希相同，表示无需重复导入
+
         if existing_ids and all(
             metadata.get("file_hash") == file_hash
             for metadata in existing_metadata
@@ -108,10 +99,10 @@ class KnowledgeBaseService:
                 already_indexed=True,
             )
 
-        # 读取TXT、Markdown或PDF
+
         documents = load_source_documents(source_path)
 
-        # 给每个Document补充来源信息
+
         for document in documents:
             document.metadata.update(
                 {
@@ -122,7 +113,7 @@ class KnowledgeBaseService:
                 }
             )
 
-        # 把完整Document切分成多个Chunk
+
         chunks = self._text_splitter.split_documents(documents)
 
         if not chunks:
@@ -131,10 +122,10 @@ class KnowledgeBaseService:
         chunk_ids: list[str] = []
 
         for index, chunk in enumerate(chunks):
-            # 保存Chunk序号
+
             chunk.metadata["chunk_index"] = index
 
-            # 为每个Chunk生成稳定且唯一的ID
+
             chunk_id = sha256(
                 (
                     f"{owner_id}:"
@@ -146,11 +137,11 @@ class KnowledgeBaseService:
 
             chunk_ids.append(chunk_id)
 
-        # 文件内容改变时，删除原来的旧Chunk
+
         if existing_ids:
             store.delete(ids=existing_ids)
 
-        # 写入新Chunk
+
         store.add_documents(
             documents=chunks,
             ids=chunk_ids,
@@ -163,7 +154,7 @@ class KnowledgeBaseService:
         )
 
     def search(self, owner_id: str, query: str) -> list[Document]:
-        """根据用户问题检索相关文档片段"""
+        """检索当前用户最相关的文档片段。"""
         clean_query = query.strip()
 
         if not clean_query:
@@ -178,7 +169,7 @@ class KnowledgeBaseService:
         )
 
     def list_sources(self, owner_id: str) -> list[KnowledgeSource]:
-        """列出指定用户已经导入的文档"""
+        """汇总当前用户已经索引的文档。"""
         result = self._get_store().get(
             where={"owner_id": owner_id}
         )
@@ -209,11 +200,7 @@ class KnowledgeBaseService:
         )
 
     def delete_source(self, owner_id: str, filename: str) -> bool:
-        """
-        删除指定文档在Chroma中的所有Chunk。
-
-            注意：这里删除的是向量索引，不会删除knowledge_base目录里的原始文件。
-        """
+        """删除指定文档的全部向量片段。"""
         safe_filename = self._validate_filename(filename)
 
         result = self._get_store().get(
@@ -234,12 +221,7 @@ class KnowledgeBaseService:
         return True
 
     def close(self) -> None:
-        """
-        关闭底层向量数据库客户端并释放文件句柄。
-
-        该方法可以重复调用。知识库尚未初始化时，
-        调用close不会产生任何影响。
-        """
+        """关闭底层向量数据库客户端并释放文件句柄。"""
         with self._vector_store_lock:
             vector_store = self._vector_store
             self._vector_store = None
@@ -247,8 +229,7 @@ class KnowledgeBaseService:
         if vector_store is None:
             return
 
-        # 如果未来LangChain Chroma直接提供close，
-        # 优先调用公开方法。
+
         close_vector_store = getattr(
             vector_store,
             "close",
@@ -259,8 +240,7 @@ class KnowledgeBaseService:
             close_vector_store()
             return
 
-        # 当前langchain-chroma没有公开close，
-        # 需要关闭其底层chromadb客户端。
+
         client = getattr(
             vector_store,
             "_client",
@@ -277,20 +257,14 @@ class KnowledgeBaseService:
             close_client()
 
     def _get_store(self) -> Any:
-        """
-        延迟并且线程安全地创建Chroma。
-
-        ToolNode可能并行执行多个工具，因此必须防止：
-        1. 重复加载Embedding模型；
-        2. 同时创建多个Chroma客户端；
-        3. 多个客户端同时初始化同一个SQLite数据库。
-        """
+        """线程安全地延迟创建向量存储。"""
         if self._vector_store is not None:
             return self._vector_store
 
         with self._vector_store_lock:
-            # 获得锁后再次检查，因为等待锁期间，
-            # 另一个线程可能已经完成初始化。
+
+
+            # 锁内再次检查，避免并发创建多个存储实例。
             if self._vector_store is None:
                 self._vector_store = (
                     self._vector_store_factory()
@@ -299,13 +273,14 @@ class KnowledgeBaseService:
         return self._vector_store
 
     def _resolve_source(self, filename: str) -> Path:
-        """校验并取得knowledge_base中的文件路径。"""
+        """校验并返回知识库根目录中的源文件。"""
         safe_filename = self._validate_filename(filename)
         source_path = (
             self._source_directory / safe_filename
         ).resolve()
 
-        # 防止通过../读取目录外的文件
+
+        # 解析后的父目录必须仍是知识库根目录。
         if source_path.parent != self._source_directory:
             raise ValueError("只能读取 knowledge_base 目录中的文件")
 
@@ -325,14 +300,7 @@ class KnowledgeBaseService:
 
     @staticmethod
     def _validate_filename(filename: str) -> str:
-        """
-        校验文件名。
-
-            允许: agent_learning.md
-
-            不允许: ../secret.txt
-                   documents/file.pdf
-        """
+        """拒绝目录路径和不安全文件名。"""
         clean_filename = filename.strip()
 
         if not clean_filename:

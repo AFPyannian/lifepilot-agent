@@ -1,3 +1,6 @@
+"""验证敏感工具的审批恢复接口。"""
+
+
 from types import SimpleNamespace
 from typing import Any
 

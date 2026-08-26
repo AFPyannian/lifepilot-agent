@@ -1,3 +1,6 @@
+"""验证用户资料和长期记忆仓储。"""
+
+
 from app.repositories.user_memory_repository import (
     UserMemoryRepository,
 )

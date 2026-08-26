@@ -1,3 +1,6 @@
+"""将 LangGraph 流式事件转换为 SSE 响应。"""
+
+
 import json
 import logging
 from collections.abc import (
@@ -29,7 +32,7 @@ def create_sse_event(
     event: str,
     data: Mapping[str, Any],
 ) -> str:
-    """把事件名称和数据编码成 SSE 格式。"""
+    """将事件名称和数据编码为一条 SSE 消息。"""
 
     json_data = json.dumps(
         dict(data),
@@ -50,7 +53,7 @@ def stream_chat_events(
     thread_id: str,
     config: dict[str, Any],
 ) -> Iterator[str]:
-    """执行 Agent 并生成 SSE 事件。"""
+    """执行 Agent 并依次产生开始、文本、审批、完成或错误事件。"""
 
     yield create_sse_event(
         event="start",
@@ -65,8 +68,8 @@ def stream_chat_events(
         ) = None
 
         with graph_lock:
-            # 先检查是否存在人工审批中断。
-            # 这种状态不能调用 invoke(None)。
+
+
             pending_interrupt = (
                 find_pending_interrupt(
                     graph=graph,
@@ -82,8 +85,8 @@ def stream_chat_events(
                 )
 
             else:
-                # 只有确认不是人工审批后，
-                # 才恢复普通未完成节点。
+
+
                 resume_pending_execution(
                     graph=graph,
                     config=config,
@@ -158,8 +161,7 @@ def stream_chat_events(
                             },
                         )
 
-                # messages流本身不会作为普通文本
-                # 返回审批内容，所以执行后查询状态。
+
                 pending_interrupt = (
                     find_pending_interrupt(
                         graph=graph,
@@ -242,7 +244,7 @@ def stream_chat_events(
 def _extract_stream_text(
     content: Any,
 ) -> str:
-    """从模型消息块中提取可展示文本。"""
+    """从 LangGraph 消息事件中提取可展示文本。"""
 
     if isinstance(content, str):
         return content

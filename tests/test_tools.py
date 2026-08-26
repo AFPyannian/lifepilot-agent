@@ -1,3 +1,6 @@
+"""验证待办工具及删除审批。"""
+
+
 from app.repositories.todo_repository import (
     TodoRepository,
 )
@@ -107,7 +110,6 @@ def test_delete_todo_approved(
     tmp_path,
     monkeypatch,
 ):
-    """用户批准后真正删除待办。"""
 
     monkeypatch.setattr(
         "app.tools.todo_tools.interrupt",
@@ -151,7 +153,6 @@ def test_delete_todo_rejected(
     tmp_path,
     monkeypatch,
 ):
-    """用户拒绝后不得删除待办。"""
 
     captured_request = {}
 
@@ -194,13 +195,13 @@ def test_delete_todo_rejected(
         "操作已取消。"
     )
 
-    # 拒绝后数据仍然存在。
+
     assert (
         list_result
         == "ID=1 | 未完成 | 必须保留"
     )
 
-    # 同时验证传给前端的审批信息。
+
     assert captured_request == {
         "kind": "tool_approval",
         "tool_name": "delete_todo",
@@ -217,7 +218,6 @@ def test_delete_missing_todo_after_approval(
     tmp_path,
     monkeypatch,
 ):
-    """批准后仍应正确处理不存在的待办。"""
 
     monkeypatch.setattr(
         "app.tools.todo_tools.interrupt",

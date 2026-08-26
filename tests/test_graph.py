@@ -1,3 +1,6 @@
+"""验证 Agent 图构建和消息处理行为。"""
+
+
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -17,13 +20,14 @@ from app.repositories.user_memory_repository import (
 
 
 class FakeChatModel:
-    """A deterministic model used only in tests."""
+    """提供仅用于图测试的确定性模型。"""
 
     def bind_tools(self, tools):
-        """Accept tools without using them."""
+        """接收并保存图绑定的工具。"""
         return self
 
     def invoke(self, messages):
+        """返回预设消息或基于输入生成测试回答。"""
         human_messages = [
             message
             for message in messages
@@ -40,7 +44,7 @@ class FakeChatModel:
 
 
 def build_test_graph(tmp_path):
-    """Create a graph without calling a real API."""
+    """构建不访问真实模型和知识库的测试图。"""
     database_path = tmp_path / "application.db"
 
     return build_graph(

@@ -1,10 +1,13 @@
+"""验证知识库工具及删除审批。"""
+
+
 from app.tools import (
     create_knowledge_tools,
 )
 
 
 class FakeKnowledgeService:
-    """不加载真实Embedding和Chroma。"""
+    """模拟无需 Embedding 和 Chroma 的知识库服务。"""
 
     def __init__(
         self,
@@ -62,7 +65,6 @@ def create_tools(
 def test_delete_knowledge_document_approved(
     monkeypatch,
 ):
-    """批准后删除知识库向量索引。"""
 
     monkeypatch.setattr(
         (
@@ -110,7 +112,6 @@ def test_delete_knowledge_document_approved(
 def test_delete_knowledge_document_rejected(
     monkeypatch,
 ):
-    """拒绝后不得调用知识库删除方法。"""
 
     captured_request = {}
 
@@ -152,8 +153,7 @@ def test_delete_knowledge_document_rejected(
         "操作已取消。"
     )
 
-    # 最关键的断言：
-    # 拒绝后删除方法完全没有被调用。
+
     assert service.delete_calls == []
 
     assert (
@@ -179,7 +179,6 @@ def test_delete_knowledge_document_rejected(
 def test_delete_missing_knowledge_document(
     monkeypatch,
 ):
-    """批准后正确处理不存在的文档。"""
 
     monkeypatch.setattr(
         (

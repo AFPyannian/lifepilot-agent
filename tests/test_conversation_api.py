@@ -1,3 +1,6 @@
+"""验证历史会话管理接口。"""
+
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,7 +19,7 @@ from app.repositories.conversation_repository import (
 
 
 class FakeCheckpointer:
-    """记录delete_thread调用的测试Checkpointer。"""
+    """记录线程删除调用的测试 Checkpointer。"""
 
     def __init__(self) -> None:
         self.deleted_thread_ids: (
@@ -33,7 +36,7 @@ class FakeCheckpointer:
 
 
 class FakeConversationGraph:
-    """提供会话状态的测试Graph。"""
+    """提供可控会话状态的测试图。"""
 
     def __init__(
         self,
@@ -257,8 +260,7 @@ def test_get_conversation_restores_messages_and_approval(
         == "删除待办测试"
     )
 
-    # SystemMessage和ToolMessage
-    # 不应该返回给前端。
+
     assert response_data["messages"] == [
         {
             "role": "user",
@@ -487,8 +489,7 @@ def test_owner_cannot_delete_other_owner_checkpoint(
         tmp_path
     )
 
-    # 该thread属于owner-2，
-    # 当前API用户是owner-1。
+
     repository.record_message(
         owner_id="owner-2",
         thread_id="private-thread",
@@ -521,8 +522,7 @@ def test_owner_cannot_delete_other_owner_checkpoint(
         "deleted": False,
     }
 
-    # 因为当前用户不拥有该会话，
-    # 所以不能删除同名checkpoint。
+
     assert (
         checkpointer.deleted_thread_ids
         == []
@@ -572,8 +572,7 @@ def test_delete_requires_checkpointer(
         )
     }
 
-    # Checkpointer不可用时，
-    # 元数据也不应该被删除。
+
     assert repository.get(
         owner_id="owner-1",
         thread_id="thread-1",

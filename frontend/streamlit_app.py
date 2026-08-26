@@ -1,3 +1,6 @@
+"""构建 LifePilot Streamlit 交互界面。"""
+
+
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -34,13 +37,13 @@ st.set_page_config(
 
 
 def create_thread_id() -> str:
-    """生成符合 API 校验规则的会话 ID。"""
+    """生成符合后端校验规则的随机会话标识。"""
 
     return f"web-{uuid4().hex}"
 
 
 def initialize_session_state() -> None:
-    """初始化当前浏览器会话状态。"""
+    """初始化当前浏览器会话所需的状态。"""
 
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = (
@@ -66,7 +69,7 @@ def initialize_session_state() -> None:
 def check_backend_health(
     base_url: str,
 ) -> bool:
-    """短暂缓存健康检查结果。"""
+    """缓存并返回后端健康状态。"""
 
     client = LifePilotApiClient(
         base_url=base_url
@@ -120,8 +123,7 @@ with st.sidebar:
 
         st.session_state.pending_approval = None
 
-        # 清除健康检查缓存，
-        # 同时重新执行页面。
+
         check_backend_health.clear()
         st.rerun()
 
@@ -546,7 +548,7 @@ if pending_approval is not None:
             st.rerun()
 
         except ApprovalRequired as error:
-            # 还存在下一个危险操作。
+
             st.session_state.pending_approval = (
                 error.request
             )
@@ -556,7 +558,7 @@ if pending_approval is not None:
         except LifePilotApiError as error:
             st.error(str(error))
 
-    # 等待审批期间不显示聊天输入框。
+
     st.stop()
 
 
@@ -583,6 +585,7 @@ if prompt:
     received_chunks: list[str] = []
 
     def collect_response():
+        """收集流式回答并同步更新页面消息。"""
         for token in client.stream_chat(
             message=prompt,
             thread_id=(
@@ -601,8 +604,7 @@ if prompt:
                 )
             )
 
-            # 当前生成器只返回字符串，
-            # 正常情况下 write_stream 返回完整字符串。
+
             if not isinstance(
                 complete_response,
                 str,

@@ -1,3 +1,6 @@
+"""创建并配置 LifePilot FastAPI 应用。"""
+
+
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from threading import Lock
@@ -27,21 +30,14 @@ def create_app(
     settings: Settings | None = None,
     conversation_repository: ConversationRepository | None = None,
 ) -> FastAPI:
-    """
-    创建FastAPI应用。可选参数主要用于自动化测试
-
-    Arg:
-        agent_graph: 注入FakeGraph，避免调用真实DeepSeek。
-        knowledge_service: 注入FakeKnowledgeService，避免加载Embedding模型和真实Chroma。
-        settings: 注入测试配置。
-        conversation_repository: 注入测试会话Repository。
-    """
+    """创建可注入测试依赖的 FastAPI 应用。"""
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        """初始化生产依赖，并在应用退出时释放资源。"""
         active_conversation_repository = conversation_repository
 
-        # 自动化测试可以直接注入FakeGraph。此时不读取.env、不创建真实数据库，也不加载Embedding模型。
+
         if agent_graph is not None:
             application.state.agent_graph = agent_graph
             application.state.graph_lock = Lock()
@@ -49,7 +45,7 @@ def create_app(
             application.state.knowledge_service = knowledge_service
             application.state.conversation_repository = active_conversation_repository
 
-            # 如果FakeGraph提供checkpointer，会话删除测试也可以验证delete_thread()是否被调用。
+
             application.state.checkpointer = (
                 getattr(agent_graph, "checkpointer", None)
             )
@@ -70,7 +66,7 @@ def create_app(
         configure_observability(active_settings)
 
         try:
-            # 会话元数据与待办、笔记等业务数据共用lifepilot.db，但使用独立的数据表。
+
             if active_conversation_repository is None:
                 active_conversation_repository = (
                     ConversationRepository(active_settings.app_database_path)
@@ -80,7 +76,8 @@ def create_app(
                 knowledge_service or create_knowledge_base_service(active_settings)
             )
 
-            # 这个with必须包围整个yield。只有这样SQLite Checkpointer连接才会在FastAPI运行期间保持打开。
+
+            # Checkpointer 连接必须覆盖整个应用生命周期。
             with open_sqlite_checkpointer(
                 active_settings.checkpoint_database_path
             ) as active_checkpointer:
@@ -108,14 +105,13 @@ def create_app(
         description="基于LangGraph和DeepSeek的个人助理Agent后端服务",
         version="0.1.0",
         lifespan=lifespan,
-        # 禁用FastAPI默认的在线Swagger资源，后面改用本地静态资源。
+
         docs_url=None,
     )
 
     application.add_middleware(RequestContextMiddleware)
 
-    # 加载本地Swagger UI资源，
-    # 避免浏览器访问外部CDN。
+
     application.mount(
         "/docs-assets",
         StaticFiles(
@@ -129,7 +125,7 @@ def create_app(
         include_in_schema=False,
     )
     async def custom_swagger_ui():
-        """返回使用本地静态资源的Swagger UI。"""
+        """返回仅使用本地静态资源的 Swagger UI。"""
 
         return get_swagger_ui_html(
             openapi_url=(

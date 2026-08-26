@@ -1,3 +1,6 @@
+"""验证 LangGraph 运行配置元数据。"""
+
+
 from types import SimpleNamespace
 
 from app.api.run_config import (

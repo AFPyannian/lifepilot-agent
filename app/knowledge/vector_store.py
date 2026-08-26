@@ -1,3 +1,6 @@
+"""创建本地中文向量模型和 Chroma 存储。"""
+
+
 from pathlib import Path
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -7,11 +10,7 @@ from app.exceptions import ConfigurationError
 
 
 def create_embedding_model(settings: Settings) -> HuggingFaceEmbeddings:
-    """
-        创建本地Embedding模型。
-
-        Embedding模型负责把文本转换成数字向量，不负责生成最终回答。
-    """
+    """创建只读取本地文件的中文 Embedding 模型。"""
     model_path = Path(
         settings.embedding_model_name
     )
@@ -39,25 +38,21 @@ def create_embedding_model(settings: Settings) -> HuggingFaceEmbeddings:
     return HuggingFaceEmbeddings(
         model_name=str(model_path),
         model_kwargs={
-            # 如果已正确安装CUDA版本PyTorch，可以在.env中改成cuda。
+
             "device": settings.embedding_device,
 
-            # 强制只读取本地文件。即使模型文件不完整，也不会再次联网下载。
+
             "local_files_only": True,
         },
         encode_kwargs={
-            # 对向量进行归一化，方便使用余弦相似度进行检索。
+
             "normalize_embeddings": True,
         },
     )
 
 
 def create_knowledge_vector_store(settings: Settings) -> Chroma:
-    """
-        创建持久化Chroma向量数据库。
-
-        persist_directory存在时，程序重启后仍能读取原来的向量。
-    """
+    """创建持久化 Chroma 向量存储。"""
     settings.chroma_persist_directory.mkdir(
         parents=True,
         exist_ok=True,

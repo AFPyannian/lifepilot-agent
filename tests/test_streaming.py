@@ -1,3 +1,6 @@
+"""验证 SSE 事件编码和流式输出。"""
+
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -14,7 +17,7 @@ from app.api.streaming import (
 
 
 class FakeStreamingGraph:
-    """用于 SSE 测试的流式 Graph。"""
+    """提供可控事件序列的流式测试图。"""
 
     def __init__(
         self,
@@ -239,7 +242,7 @@ def test_stream_returns_safe_error_event() -> None:
         )
     )
 
-    # 流开始后发生错误，因此 HTTP 状态仍是 200。
+
     assert status_code == 200
 
     assert "event: error" in body

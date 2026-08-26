@@ -1,3 +1,6 @@
+"""提供请求标识和访问日志中间件。"""
+
+
 import logging
 import re
 from time import perf_counter
@@ -15,15 +18,13 @@ REQUEST_ID_PATTERN = re.compile(
 
 
 class RequestContextMiddleware:
-    """
-    为每次HTTP请求生成Request ID，
-    并记录完整响应耗时。
-    """
+    """为 HTTP 请求设置请求标识并记录响应耗时。"""
 
     def __init__(
         self,
         app: Any,
     ) -> None:
+        """保存下游 ASGI 应用。"""
         self.app = app
 
     async def __call__(
@@ -32,6 +33,7 @@ class RequestContextMiddleware:
         receive: Any,
         send: Any,
     ) -> None:
+        """处理请求上下文、响应标识和访问日志。"""
         if scope.get("type") != "http":
             await self.app(
                 scope,
@@ -157,6 +159,7 @@ class RequestContextMiddleware:
     def _get_request_id(
         scope: dict[str, Any],
     ) -> str:
+        """验证客户端请求标识，或生成新的随机标识。"""
         headers = dict(
             scope.get(
                 "headers",

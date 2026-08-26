@@ -1,3 +1,6 @@
+"""将受支持的知识文件加载为 LangChain 文档。"""
+
+
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -8,11 +11,7 @@ SUPPORTED_SUFFIXES = {".txt", ".md", ".pdf"}
 
 
 def load_source_documents(file_path: Path) -> list[Document]:
-    """
-    读取一个知识库文件，并转换成LangChain Document列表。
-
-        TXT和Markdown通常返回一个Document，PDF按页面返回多个Document。
-    """
+    """根据扩展名加载 TXT、Markdown 或 PDF 文档。"""
     suffix = file_path.suffix.lower()
 
     if suffix not in SUPPORTED_SUFFIXES:
@@ -37,14 +36,14 @@ def load_source_documents(file_path: Path) -> list[Document]:
 
 
 def _load_pdf(file_path: Path) -> list[Document]:
-    """读取PDF，并将每一页转换成一个Document。"""
+    """逐页提取 PDF 文本并跳过空白页。"""
     reader = PdfReader(str(file_path))
     documents: list[Document] = []
 
     for page_number, page in enumerate(reader.pages, start=1):
         content = page.extract_text() or ""
 
-        # 某一页没有可提取文字时，跳过该页
+
         if not content.strip():
             continue
 

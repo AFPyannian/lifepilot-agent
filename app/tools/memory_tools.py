@@ -1,3 +1,6 @@
+"""创建供 Agent 管理用户长期记忆的工具。"""
+
+
 from langchain_core.tools import BaseTool, tool
 
 from app.repositories.user_memory_repository import (
@@ -6,7 +9,7 @@ from app.repositories.user_memory_repository import (
 
 
 def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list[BaseTool]:
-    """为单个用户创建长期记忆工具"""
+    """为指定用户创建资料和长期记忆工具。"""
 
     @tool
     def update_user_profile(
@@ -15,16 +18,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
         current_goal: str | None = None,
         response_style: str | None = None,
     ) -> str:
-        """创建或更新用户的结构化个人资料：保存姓名、职业、当前目标和回答风格。
-
-        只有用户明确要求记住或更新这些资料时才使用。
-
-        Args:
-            display_name: 用户希望助理使用的名字。
-            occupation: 用户的职业或身份。
-            current_goal: 用户当前的主要目标。
-            response_style: 用户偏好的回答风格。
-        """
+        """更新姓名、职业、目标或回答风格；仅保存用户明确要求记住的资料。"""
         try:
             profile = repository.update_profile(
                 owner_id=owner_id,
@@ -48,10 +42,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
 
     @tool
     def get_user_profile() -> str:
-        """读取当前用户保存的结构化资料。
-
-        当用户询问助理记住了哪些个人资料时使用。
-        """
+        """读取当前用户的结构化资料。"""
         profile = repository.get_profile(owner_id)
 
         if profile is None:
@@ -69,14 +60,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
         category: str,
         content: str,
     ) -> str:
-        """保存一条需要跨会话记住的用户事实：保存稳定偏好、背景、约束或长期目标，不应保存密码、API Key或银行卡等敏感凭据。
-
-        只有用户明确要求记住时才使用。
-
-        Args:
-            category: 事实分类，例如偏好、背景、目标或约束。
-            content: 需要长期记住的事实。
-        """
+        """保存稳定偏好、重要事实、长期目标或约束；不得保存敏感凭据。"""
         try:
             memory = repository.add_memory(
                 owner_id=owner_id,
@@ -96,10 +80,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
 
     @tool
     def list_user_memories() -> str:
-        """列出当前用户保存的长期记忆。
-
-        当用户询问助理记住了什么时使用。
-        """
+        """列出当前用户最近保存的长期记忆。"""
         memories = repository.list_recent(
             owner_id=owner_id,
             limit=50,
@@ -121,11 +102,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
     def search_user_memories(
         query: str,
     ) -> str:
-        """按照关键词搜索用户长期记忆。
-
-        Args:
-            query: 需要搜索的关键词。
-        """
+        """按关键词搜索当前用户的长期记忆。"""
         memories = repository.search(
             owner_id=owner_id,
             query=query,
@@ -149,13 +126,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
     def forget_user_memory(
         memory_id: int,
     ) -> str:
-        """永久删除一条长期记忆。
-
-        只有用户明确要求遗忘某条记忆时才使用。
-
-        Args:
-            memory_id: 需要删除的长期记忆ID。
-        """
+        """请求永久删除一条长期记忆；执行前必须获得用户审批。"""
         was_deleted = repository.delete_memory(
             owner_id=owner_id,
             memory_id=memory_id,

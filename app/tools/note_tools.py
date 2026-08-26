@@ -1,3 +1,6 @@
+"""创建供 Agent 管理用户笔记的工具。"""
+
+
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
@@ -10,7 +13,7 @@ from app.repositories.note_repository import (
 def _format_note_summary(
     note: NoteItem,
 ) -> str:
-    """Create a compact note summary."""
+    """将笔记压缩成适合列表展示的摘要。"""
     preview = " ".join(
         note.content.split()
     )
@@ -29,21 +32,14 @@ def create_note_tools(
     repository: NoteRepository,
     owner_id: str,
 ) -> list[BaseTool]:
-    """Create note tools for one owner."""
+    """为指定用户创建笔记工具。"""
 
     @tool
     def add_note(
         title: str,
         content: str,
     ) -> str:
-        """创建并保存一条新笔记。
-
-        当用户明确要求记录、保存或创建笔记时使用。
-
-        Args:
-            title: 简短、明确的笔记标题。
-            content: 需要保存的完整笔记内容。
-        """
+        """创建一条笔记；仅在用户明确要求记录或保存时调用。"""
         try:
             note = repository.add(
                 owner_id=owner_id,
@@ -60,10 +56,7 @@ def create_note_tools(
 
     @tool
     def list_notes() -> str:
-        """列出当前用户保存的所有笔记摘要。
-
-        当用户要求查看笔记列表时使用。
-        """
+        """列出当前用户的全部笔记摘要。"""
         notes = repository.list_all(owner_id)
 
         if not notes:
@@ -76,13 +69,7 @@ def create_note_tools(
 
     @tool
     def get_note(note_id: int) -> str:
-        """根据ID读取一条完整笔记。
-
-        当用户希望查看某条笔记的完整内容时使用。
-
-        Args:
-            note_id: 需要读取的笔记ID。
-        """
+        """根据编号读取当前用户的一条完整笔记。"""
         note = repository.get_by_id(
             owner_id=owner_id,
             note_id=note_id,
@@ -104,13 +91,7 @@ def create_note_tools(
 
     @tool
     def search_notes(query: str) -> str:
-        """按照关键词搜索笔记标题和内容。
-
-        当用户记不清笔记ID，或要求查找相关笔记时使用。
-
-        Args:
-            query: 用于搜索笔记的关键词。
-        """
+        """按关键词搜索当前用户的笔记标题和正文。"""
         notes = repository.search(
             owner_id=owner_id,
             query=query,
@@ -133,15 +114,7 @@ def create_note_tools(
         title: str | None = None,
         content: str | None = None,
     ) -> str:
-        """修改一条已存在的笔记。
-
-        用户必须提供笔记ID，并至少提供新标题或新内容。
-
-        Args:
-            note_id: 需要修改的笔记ID。
-            title: 新标题；不修改标题时可以省略。
-            content: 新内容；不修改内容时可以省略。
-        """
+        """修改当前用户已经存在的一条笔记。"""
         if title is None and content is None:
             return "必须提供新标题或新内容。"
 
@@ -168,11 +141,7 @@ def create_note_tools(
 
     @tool
     def delete_note(note_id: int) -> str:
-        """
-        功能：永久删除一条笔记，执行前必须获得用户审批。
-        Args:
-            note_id: 需要永久删除的笔记ID。
-        """
+        """请求永久删除一条笔记；执行前必须获得用户审批。"""
         decision = interrupt(
             {
                 "kind": "tool_approval",

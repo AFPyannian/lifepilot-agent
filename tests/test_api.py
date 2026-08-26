@@ -1,3 +1,6 @@
+"""验证聊天与健康检查 API。"""
+
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -8,7 +11,7 @@ from app.api.server import create_app
 
 
 class FakeGraph:
-    """不调用真实模型的测试 Graph。"""
+    """模拟聊天、恢复和失败状态的测试图。"""
 
     def __init__(
         self,

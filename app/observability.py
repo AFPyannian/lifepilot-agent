@@ -1,3 +1,6 @@
+"""根据应用配置启用或关闭 LangSmith 追踪。"""
+
+
 import logging
 import os
 
@@ -12,7 +15,7 @@ logger = logging.getLogger(
 def configure_observability(
     settings: Settings,
 ) -> None:
-    """根据统一配置启用或关闭LangSmith。"""
+    """将 LangSmith 配置同步到当前进程环境。"""
 
     os.environ["LANGSMITH_TRACING"] = (
         "true"
