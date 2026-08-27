@@ -1,6 +1,5 @@
 """导出 LifePilot Agent 的工具工厂。"""
 
-
 from app.tools.knowledge_tools import (
     create_knowledge_tools,
 )
@@ -13,7 +12,6 @@ from app.tools.note_tools import (
 from app.tools.todo_tools import (
     create_todo_tools,
 )
-
 
 __all__ = [
     "create_knowledge_tools",

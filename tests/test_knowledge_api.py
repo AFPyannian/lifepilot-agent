@@ -1,6 +1,5 @@
 """验证知识库文档管理接口。"""
 
-
 from types import SimpleNamespace
 from urllib.parse import quote
 
@@ -11,13 +10,9 @@ from app.api.server import create_app
 
 class FakeKnowledgeService:
     def __init__(self) -> None:
-        self.ingested_filename: (
-            str | None
-        ) = None
+        self.ingested_filename: str | None = None
 
-        self.deleted_filename: (
-            str | None
-        ) = None
+        self.deleted_filename: str | None = None
 
     def ingest(
         self,
@@ -66,9 +61,7 @@ def create_test_app(
     settings = SimpleNamespace(
         owner_id="test-user",
         knowledge_source_directory=tmp_path,
-        knowledge_max_file_bytes=(
-            max_file_bytes
-        ),
+        knowledge_max_file_bytes=(max_file_bytes),
     )
 
     return create_app(
@@ -108,16 +101,9 @@ def test_upload_knowledge_document(
         "already_indexed": False,
     }
 
-    assert (
-        service.ingested_filename
-        == "学习资料.md"
-    )
+    assert service.ingested_filename == "学习资料.md"
 
-    assert (
-        tmp_path / "学习资料.md"
-    ).read_bytes() == (
-        b"# Agent\nTest content"
-    )
+    assert (tmp_path / "学习资料.md").read_bytes() == (b"# Agent\nTest content")
 
 
 def test_upload_rejects_unsupported_file(
@@ -137,18 +123,13 @@ def test_upload_rejects_unsupported_file(
                 "file": (
                     "program.exe",
                     b"unsafe",
-                    (
-                        "application/"
-                        "octet-stream"
-                    ),
+                    ("application/octet-stream"),
                 )
             },
         )
 
     assert response.status_code == 400
-    assert not (
-        tmp_path / "program.exe"
-    ).exists()
+    assert not (tmp_path / "program.exe").exists()
 
 
 def test_upload_rejects_oversized_file(
@@ -175,9 +156,7 @@ def test_upload_rejects_oversized_file(
         )
 
     assert response.status_code == 400
-    assert not (
-        tmp_path / "large.md"
-    ).exists()
+    assert not (tmp_path / "large.md").exists()
 
 
 def test_list_knowledge_documents(
@@ -191,9 +170,7 @@ def test_list_knowledge_documents(
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            "/api/v1/knowledge/documents"
-        )
+        response = client.get("/api/v1/knowledge/documents")
 
     assert response.status_code == 200
 
@@ -231,10 +208,7 @@ def test_delete_knowledge_document(
     )
 
     with TestClient(app) as client:
-        response = client.delete(
-            "/api/v1/knowledge/documents/"
-            f"{encoded_filename}"
-        )
+        response = client.delete(f"/api/v1/knowledge/documents/{encoded_filename}")
 
     assert response.status_code == 200
 
@@ -243,9 +217,6 @@ def test_delete_knowledge_document(
         "deleted": True,
     }
 
-    assert (
-        service.deleted_filename
-        == filename
-    )
+    assert service.deleted_filename == filename
 
     assert not source_path.exists()

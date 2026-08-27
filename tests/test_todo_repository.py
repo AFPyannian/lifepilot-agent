@@ -1,6 +1,5 @@
 """验证待办事项仓储。"""
 
-
 from app.repositories.todo_repository import (
     TodoRepository,
 )
@@ -42,24 +41,14 @@ def test_users_are_isolated(tmp_path):
         task="用户二的任务",
     )
 
-    user_one_todos = repository.list_all(
-        "user-1"
-    )
-    user_two_todos = repository.list_all(
-        "user-2"
-    )
+    user_one_todos = repository.list_all("user-1")
+    user_two_todos = repository.list_all("user-2")
 
     assert len(user_one_todos) == 1
     assert len(user_two_todos) == 1
 
-    assert (
-        user_one_todos[0].task
-        == "用户一的任务"
-    )
-    assert (
-        user_two_todos[0].task
-        == "用户二的任务"
-    )
+    assert user_one_todos[0].task == "用户一的任务"
+    assert user_two_todos[0].task == "用户二的任务"
 
 
 def test_mark_todo_as_completed(tmp_path):

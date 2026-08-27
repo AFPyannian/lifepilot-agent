@@ -1,6 +1,5 @@
 """验证 Agent 图构建和消息处理行为。"""
 
-
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -29,18 +28,10 @@ class FakeChatModel:
     def invoke(self, messages):
         """返回预设消息或基于输入生成测试回答。"""
         human_messages = [
-            message
-            for message in messages
-            if isinstance(message, HumanMessage)
+            message for message in messages if isinstance(message, HumanMessage)
         ]
 
-        return AIMessage(
-            content=(
-                f"已处理第 "
-                f"{len(human_messages)} "
-                f"条用户消息"
-            )
-        )
+        return AIMessage(content=(f"已处理第 {len(human_messages)} 条用户消息"))
 
 
 def build_test_graph(tmp_path):
@@ -50,15 +41,9 @@ def build_test_graph(tmp_path):
     return build_graph(
         model=FakeChatModel(),
         checkpointer=InMemorySaver(),
-        todo_repository=TodoRepository(
-            database_path
-        ),
-        note_repository=NoteRepository(
-            database_path
-        ),
-        memory_repository=UserMemoryRepository(
-            database_path
-        ),
+        todo_repository=TodoRepository(database_path),
+        note_repository=NoteRepository(database_path),
+        memory_repository=UserMemoryRepository(database_path),
         owner_id="test-user",
     )
 
@@ -86,10 +71,7 @@ def test_graph_returns_ai_response(tmp_path):
         result["messages"][-1],
         AIMessage,
     )
-    assert (
-        result["messages"][-1].content
-        == "已处理第 1 条用户消息"
-    )
+    assert result["messages"][-1].content == "已处理第 1 条用户消息"
 
 
 def test_same_thread_keeps_history(tmp_path):
@@ -120,10 +102,7 @@ def test_same_thread_keeps_history(tmp_path):
     )
 
     assert len(result["messages"]) == 4
-    assert (
-        result["messages"][-1].content
-        == "已处理第 2 条用户消息"
-    )
+    assert result["messages"][-1].content == "已处理第 2 条用户消息"
 
 
 def test_different_threads_are_isolated(tmp_path):
@@ -159,7 +138,4 @@ def test_different_threads_are_isolated(tmp_path):
     )
 
     assert len(result["messages"]) == 2
-    assert (
-        result["messages"][-1].content
-        == "已处理第 1 条用户消息"
-    )
+    assert result["messages"][-1].content == "已处理第 1 条用户消息"

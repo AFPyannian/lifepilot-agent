@@ -1,6 +1,5 @@
 """验证历史会话管理接口。"""
 
-
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,17 +21,13 @@ class FakeCheckpointer:
     """记录线程删除调用的测试 Checkpointer。"""
 
     def __init__(self) -> None:
-        self.deleted_thread_ids: (
-            list[str]
-        ) = []
+        self.deleted_thread_ids: list[str] = []
 
     def delete_thread(
         self,
         thread_id: str,
     ) -> None:
-        self.deleted_thread_ids.append(
-            thread_id
-        )
+        self.deleted_thread_ids.append(thread_id)
 
 
 class FakeConversationGraph:
@@ -40,31 +35,17 @@ class FakeConversationGraph:
 
     def __init__(
         self,
-        messages: (
-            list[Any] | None
-        ) = None,
-        pending_approval: (
-            dict[str, Any] | None
-        ) = None,
-        checkpointer: (
-            FakeCheckpointer | None
-        ) = None,
+        messages: (list[Any] | None) = None,
+        pending_approval: (dict[str, Any] | None) = None,
+        checkpointer: (FakeCheckpointer | None) = None,
     ) -> None:
-        self.messages = (
-            messages
-            if messages is not None
-            else []
-        )
+        self.messages = messages if messages is not None else []
 
-        self.pending_approval = (
-            pending_approval
-        )
+        self.pending_approval = pending_approval
 
         self.checkpointer = checkpointer
 
-        self.last_config: (
-            dict[str, Any] | None
-        ) = None
+        self.last_config: dict[str, Any] | None = None
 
     def get_state(
         self,
@@ -74,20 +55,10 @@ class FakeConversationGraph:
 
         tasks = ()
 
-        if (
-            self.pending_approval
-            is not None
-        ):
+        if self.pending_approval is not None:
             tasks = (
                 SimpleNamespace(
-                    interrupts=(
-                        SimpleNamespace(
-                            value=(
-                                self
-                                .pending_approval
-                            )
-                        ),
-                    )
+                    interrupts=(SimpleNamespace(value=(self.pending_approval)),)
                 ),
             )
 
@@ -95,11 +66,7 @@ class FakeConversationGraph:
             values={
                 "messages": self.messages,
             },
-            next=(
-                ("tools",)
-                if tasks
-                else ()
-            ),
+            next=(("tools",) if tasks else ()),
             tasks=tasks,
         )
 
@@ -107,34 +74,26 @@ class FakeConversationGraph:
 def create_repository(
     tmp_path,
 ) -> ConversationRepository:
-    return ConversationRepository(
-        tmp_path / "application.db"
-    )
+    return ConversationRepository(tmp_path / "application.db")
 
 
 def create_test_app(
     repository: ConversationRepository,
     graph: FakeConversationGraph,
 ):
-    settings = SimpleNamespace(
-        owner_id="owner-1"
-    )
+    settings = SimpleNamespace(owner_id="owner-1")
 
     return create_app(
         agent_graph=graph,
         settings=settings,
-        conversation_repository=(
-            repository
-        ),
+        conversation_repository=(repository),
     )
 
 
 def test_list_conversations_only_returns_current_owner(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-1",
@@ -156,33 +115,19 @@ def test_list_conversations_only_returns_current_owner(
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            "/api/v1/conversations"
-        )
+        response = client.get("/api/v1/conversations")
 
     assert response.status_code == 200
 
     response_data = response.json()
 
-    assert len(
-        response_data["conversations"]
-    ) == 1
+    assert len(response_data["conversations"]) == 1
 
-    conversation = (
-        response_data[
-            "conversations"
-        ][0]
-    )
+    conversation = response_data["conversations"][0]
 
-    assert (
-        conversation["thread_id"]
-        == "thread-1"
-    )
+    assert conversation["thread_id"] == "thread-1"
 
-    assert (
-        conversation["title"]
-        == "我的会话"
-    )
+    assert conversation["title"] == "我的会话"
 
     assert "created_at" in conversation
     assert "updated_at" in conversation
@@ -191,9 +136,7 @@ def test_list_conversations_only_returns_current_owner(
 def test_get_conversation_restores_messages_and_approval(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-1",
@@ -204,9 +147,7 @@ def test_get_conversation_restores_messages_and_approval(
     approval_request = {
         "kind": "tool_approval",
         "tool_name": "delete_todo",
-        "message": (
-            "是否确认删除这个待办事项？"
-        ),
+        "message": ("是否确认删除这个待办事项？"),
         "arguments": {
             "todo_id": 1,
         },
@@ -214,23 +155,15 @@ def test_get_conversation_restores_messages_and_approval(
 
     graph = FakeConversationGraph(
         messages=[
-            SystemMessage(
-                content="内部系统消息"
-            ),
-            HumanMessage(
-                content="删除待办1"
-            ),
-            AIMessage(
-                content="我准备删除该待办。"
-            ),
+            SystemMessage(content="内部系统消息"),
+            HumanMessage(content="删除待办1"),
+            AIMessage(content="我准备删除该待办。"),
             ToolMessage(
                 content="内部工具结果",
                 tool_call_id="call-1",
             ),
         ],
-        pending_approval=(
-            approval_request
-        ),
+        pending_approval=(approval_request),
     )
 
     app = create_test_app(
@@ -239,27 +172,15 @@ def test_get_conversation_restores_messages_and_approval(
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            (
-                "/api/v1/conversations/"
-                "thread-1"
-            )
-        )
+        response = client.get("/api/v1/conversations/thread-1")
 
     assert response.status_code == 200
 
     response_data = response.json()
 
-    assert (
-        response_data["thread_id"]
-        == "thread-1"
-    )
+    assert response_data["thread_id"] == "thread-1"
 
-    assert (
-        response_data["title"]
-        == "删除待办测试"
-    )
-
+    assert response_data["title"] == "删除待办测试"
 
     assert response_data["messages"] == [
         {
@@ -268,18 +189,11 @@ def test_get_conversation_restores_messages_and_approval(
         },
         {
             "role": "assistant",
-            "content": (
-                "我准备删除该待办。"
-            ),
+            "content": ("我准备删除该待办。"),
         },
     ]
 
-    assert (
-        response_data[
-            "pending_approval"
-        ]
-        == approval_request
-    )
+    assert response_data["pending_approval"] == approval_request
 
     assert graph.last_config == {
         "configurable": {
@@ -291,9 +205,7 @@ def test_get_conversation_restores_messages_and_approval(
 def test_get_missing_conversation_returns_404(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     graph = FakeConversationGraph()
 
@@ -303,26 +215,17 @@ def test_get_missing_conversation_returns_404(
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            (
-                "/api/v1/conversations/"
-                "missing-thread"
-            )
-        )
+        response = client.get("/api/v1/conversations/missing-thread")
 
     assert response.status_code == 404
 
-    assert response.json() == {
-        "detail": "会话不存在。"
-    }
+    assert response.json() == {"detail": "会话不存在。"}
 
 
 def test_conversation_rejects_invalid_thread_id(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     graph = FakeConversationGraph()
 
@@ -332,12 +235,7 @@ def test_conversation_rejects_invalid_thread_id(
     )
 
     with TestClient(app) as client:
-        response = client.get(
-            (
-                "/api/v1/conversations/"
-                "invalid%20thread"
-            )
-        )
+        response = client.get("/api/v1/conversations/invalid%20thread")
 
     assert response.status_code == 422
 
@@ -345,9 +243,7 @@ def test_conversation_rejects_invalid_thread_id(
 def test_rename_conversation(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-1",
@@ -364,52 +260,32 @@ def test_rename_conversation(
 
     with TestClient(app) as client:
         response = client.patch(
-            (
-                "/api/v1/conversations/"
-                "thread-1"
-            ),
-            json={
-                "title": (
-                    "  LangGraph   学习会话  "
-                )
-            },
+            ("/api/v1/conversations/thread-1"),
+            json={"title": ("  LangGraph   学习会话  ")},
         )
 
     assert response.status_code == 200
 
     response_data = response.json()
 
-    assert (
-        response_data["thread_id"]
-        == "thread-1"
-    )
+    assert response_data["thread_id"] == "thread-1"
 
-    assert (
-        response_data["title"]
-        == "LangGraph 学习会话"
-    )
+    assert response_data["title"] == "LangGraph 学习会话"
 
-    stored_conversation = (
-        repository.get(
-            owner_id="owner-1",
-            thread_id="thread-1",
-        )
+    stored_conversation = repository.get(
+        owner_id="owner-1",
+        thread_id="thread-1",
     )
 
     assert stored_conversation is not None
 
-    assert (
-        stored_conversation.title
-        == "LangGraph 学习会话"
-    )
+    assert stored_conversation.title == "LangGraph 学习会话"
 
 
 def test_rename_missing_conversation_returns_404(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     graph = FakeConversationGraph()
 
@@ -420,10 +296,7 @@ def test_rename_missing_conversation_returns_404(
 
     with TestClient(app) as client:
         response = client.patch(
-            (
-                "/api/v1/conversations/"
-                "missing-thread"
-            ),
+            ("/api/v1/conversations/missing-thread"),
             json={
                 "title": "新标题",
             },
@@ -435,9 +308,7 @@ def test_rename_missing_conversation_returns_404(
 def test_delete_conversation_removes_metadata_and_checkpoints(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-1",
@@ -447,9 +318,7 @@ def test_delete_conversation_removes_metadata_and_checkpoints(
 
     checkpointer = FakeCheckpointer()
 
-    graph = FakeConversationGraph(
-        checkpointer=checkpointer
-    )
+    graph = FakeConversationGraph(checkpointer=checkpointer)
 
     app = create_test_app(
         repository=repository,
@@ -457,12 +326,7 @@ def test_delete_conversation_removes_metadata_and_checkpoints(
     )
 
     with TestClient(app) as client:
-        response = client.delete(
-            (
-                "/api/v1/conversations/"
-                "thread-1"
-            )
-        )
+        response = client.delete("/api/v1/conversations/thread-1")
 
     assert response.status_code == 200
 
@@ -471,24 +335,21 @@ def test_delete_conversation_removes_metadata_and_checkpoints(
         "deleted": True,
     }
 
-    assert (
-        checkpointer.deleted_thread_ids
-        == ["thread-1"]
-    )
+    assert checkpointer.deleted_thread_ids == ["thread-1"]
 
-    assert repository.get(
-        owner_id="owner-1",
-        thread_id="thread-1",
-    ) is None
+    assert (
+        repository.get(
+            owner_id="owner-1",
+            thread_id="thread-1",
+        )
+        is None
+    )
 
 
 def test_owner_cannot_delete_other_owner_checkpoint(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
-
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-2",
@@ -498,9 +359,7 @@ def test_owner_cannot_delete_other_owner_checkpoint(
 
     checkpointer = FakeCheckpointer()
 
-    graph = FakeConversationGraph(
-        checkpointer=checkpointer
-    )
+    graph = FakeConversationGraph(checkpointer=checkpointer)
 
     app = create_test_app(
         repository=repository,
@@ -508,12 +367,7 @@ def test_owner_cannot_delete_other_owner_checkpoint(
     )
 
     with TestClient(app) as client:
-        response = client.delete(
-            (
-                "/api/v1/conversations/"
-                "private-thread"
-            )
-        )
+        response = client.delete("/api/v1/conversations/private-thread")
 
     assert response.status_code == 200
 
@@ -522,24 +376,21 @@ def test_owner_cannot_delete_other_owner_checkpoint(
         "deleted": False,
     }
 
+    assert checkpointer.deleted_thread_ids == []
 
     assert (
-        checkpointer.deleted_thread_ids
-        == []
+        repository.get(
+            owner_id="owner-2",
+            thread_id="private-thread",
+        )
+        is not None
     )
-
-    assert repository.get(
-        owner_id="owner-2",
-        thread_id="private-thread",
-    ) is not None
 
 
 def test_delete_requires_checkpointer(
     tmp_path,
 ) -> None:
-    repository = create_repository(
-        tmp_path
-    )
+    repository = create_repository(tmp_path)
 
     repository.record_message(
         owner_id="owner-1",
@@ -547,9 +398,7 @@ def test_delete_requires_checkpointer(
         first_message="测试会话",
     )
 
-    graph = FakeConversationGraph(
-        checkpointer=None
-    )
+    graph = FakeConversationGraph(checkpointer=None)
 
     app = create_test_app(
         repository=repository,
@@ -557,23 +406,16 @@ def test_delete_requires_checkpointer(
     )
 
     with TestClient(app) as client:
-        response = client.delete(
-            (
-                "/api/v1/conversations/"
-                "thread-1"
-            )
-        )
+        response = client.delete("/api/v1/conversations/thread-1")
 
     assert response.status_code == 503
 
-    assert response.json() == {
-        "detail": (
-            "Checkpoint服务不可用。"
+    assert response.json() == {"detail": ("Checkpoint服务不可用。")}
+
+    assert (
+        repository.get(
+            owner_id="owner-1",
+            thread_id="thread-1",
         )
-    }
-
-
-    assert repository.get(
-        owner_id="owner-1",
-        thread_id="thread-1",
-    ) is not None
+        is not None
+    )

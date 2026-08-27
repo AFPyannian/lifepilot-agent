@@ -1,6 +1,5 @@
 """将 LangGraph 流式事件转换为 SSE 响应。"""
 
-
 import json
 import logging
 from collections.abc import (
@@ -22,10 +21,7 @@ from app.api.interrupts import (
 )
 from app.exceptions import LifePilotError
 
-
-logger = logging.getLogger(
-    "lifepilot.api.streaming"
-)
+logger = logging.getLogger("lifepilot.api.streaming")
 
 
 def create_sse_event(
@@ -40,10 +36,7 @@ def create_sse_event(
         separators=(",", ":"),
     )
 
-    return (
-        f"event: {event}\n"
-        f"data: {json_data}\n\n"
-    )
+    return f"event: {event}\ndata: {json_data}\n\n"
 
 
 def stream_chat_events(
@@ -63,58 +56,35 @@ def stream_chat_events(
     )
 
     try:
-        approval_request: (
-            dict[str, Any] | None
-        ) = None
+        approval_request: dict[str, Any] | None = None
 
         with graph_lock:
-
-
-            pending_interrupt = (
-                find_pending_interrupt(
-                    graph=graph,
-                    config=config,
-                )
+            pending_interrupt = find_pending_interrupt(
+                graph=graph,
+                config=config,
             )
 
             if pending_interrupt is not None:
-                approval_request = (
-                    normalize_approval_request(
-                        pending_interrupt
-                    )
-                )
+                approval_request = normalize_approval_request(pending_interrupt)
 
             else:
-
-
                 resume_pending_execution(
                     graph=graph,
                     config=config,
                 )
 
                 stream = graph.stream(
-                    {
-                        "messages": [
-                            HumanMessage(
-                                content=message
-                            )
-                        ]
-                    },
+                    {"messages": [HumanMessage(content=message)]},
                     config=config,
                     stream_mode="messages",
                     version="v2",
                 )
 
                 for part in stream:
-                    if (
-                        part.get("type")
-                        != "messages"
-                    ):
+                    if part.get("type") != "messages":
                         continue
 
-                    stream_data = part.get(
-                        "data"
-                    )
+                    stream_data = part.get("data")
 
                     if (
                         not isinstance(
@@ -125,9 +95,7 @@ def stream_chat_events(
                     ):
                         continue
 
-                    message_chunk, metadata = (
-                        stream_data
-                    )
+                    message_chunk, metadata = stream_data
 
                     if not isinstance(
                         metadata,
@@ -135,12 +103,7 @@ def stream_chat_events(
                     ):
                         continue
 
-                    if (
-                        metadata.get(
-                            "langgraph_node"
-                        )
-                        != "assistant"
-                    ):
+                    if metadata.get("langgraph_node") != "assistant":
                         continue
 
                     content = getattr(
@@ -149,9 +112,7 @@ def stream_chat_events(
                         "",
                     )
 
-                    text = _extract_stream_text(
-                        content
-                    )
+                    text = _extract_stream_text(content)
 
                     if text:
                         yield create_sse_event(
@@ -161,29 +122,19 @@ def stream_chat_events(
                             },
                         )
 
-
-                pending_interrupt = (
-                    find_pending_interrupt(
-                        graph=graph,
-                        config=config,
-                    )
+                pending_interrupt = find_pending_interrupt(
+                    graph=graph,
+                    config=config,
                 )
 
                 if pending_interrupt is not None:
-                    approval_request = (
-                        normalize_approval_request(
-                            pending_interrupt
-                        )
-                    )
+                    approval_request = normalize_approval_request(pending_interrupt)
 
         if approval_request is not None:
             logger.info(
-                "Agent approval required "
-                "thread_id=%s tool=%s",
+                "Agent approval required thread_id=%s tool=%s",
                 thread_id,
-                approval_request.get(
-                    "tool_name"
-                ),
+                approval_request.get("tool_name"),
             )
 
             yield create_sse_event(
@@ -197,8 +148,7 @@ def stream_chat_events(
             return
 
         logger.info(
-            "Agent stream completed "
-            "thread_id=%s",
+            "Agent stream completed thread_id=%s",
             thread_id,
         )
 
@@ -211,8 +161,7 @@ def stream_chat_events(
 
     except LifePilotError as error:
         logger.exception(
-            "Expected Agent stream error "
-            "thread_id=%s",
+            "Expected Agent stream error thread_id=%s",
             thread_id,
         )
 
@@ -225,18 +174,14 @@ def stream_chat_events(
 
     except Exception:
         logger.exception(
-            "Unexpected Agent stream error "
-            "thread_id=%s",
+            "Unexpected Agent stream error thread_id=%s",
             thread_id,
         )
 
         yield create_sse_event(
             event="error",
             data={
-                "message": (
-                    "LifePilot 生成回答时"
-                    "发生内部错误。"
-                ),
+                "message": ("LifePilot 生成回答时发生内部错误。"),
             },
         )
 

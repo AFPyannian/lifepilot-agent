@@ -18,6 +18,8 @@ env/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 
 # 构建产物

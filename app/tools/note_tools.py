@@ -1,6 +1,5 @@
 """创建供 Agent 管理用户笔记的工具。"""
 
-
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
@@ -14,18 +13,12 @@ def _format_note_summary(
     note: NoteItem,
 ) -> str:
     """将笔记压缩成适合列表展示的摘要。"""
-    preview = " ".join(
-        note.content.split()
-    )
+    preview = " ".join(note.content.split())
 
     if len(preview) > 80:
         preview = f"{preview[:80]}..."
 
-    return (
-        f"ID={note.id} | "
-        f"标题：{note.title} | "
-        f"摘要：{preview}"
-    )
+    return f"ID={note.id} | 标题：{note.title} | 摘要：{preview}"
 
 
 def create_note_tools(
@@ -49,10 +42,7 @@ def create_note_tools(
         except ValueError:
             return "笔记标题和内容都不能为空。"
 
-        return (
-            f"已创建笔记，ID={note.id}，"
-            f"标题：{note.title}"
-        )
+        return f"已创建笔记，ID={note.id}，标题：{note.title}"
 
     @tool
     def list_notes() -> str:
@@ -62,10 +52,7 @@ def create_note_tools(
         if not notes:
             return "笔记列表为空。"
 
-        return "\n".join(
-            _format_note_summary(note)
-            for note in notes
-        )
+        return "\n".join(_format_note_summary(note) for note in notes)
 
     @tool
     def get_note(note_id: int) -> str:
@@ -76,10 +63,7 @@ def create_note_tools(
         )
 
         if note is None:
-            return (
-                f"未找到 ID={note_id} 的笔记，"
-                "或该笔记不属于当前用户。"
-            )
+            return f"未找到 ID={note_id} 的笔记，或该笔记不属于当前用户。"
 
         return (
             f"笔记ID：{note.id}\n"
@@ -98,15 +82,9 @@ def create_note_tools(
         )
 
         if not notes:
-            return (
-                f"没有找到包含“{query.strip()}”"
-                "的笔记。"
-            )
+            return f"没有找到包含“{query.strip()}”的笔记。"
 
-        return "\n".join(
-            _format_note_summary(note)
-            for note in notes
-        )
+        return "\n".join(_format_note_summary(note) for note in notes)
 
     @tool
     def update_note(
@@ -129,15 +107,9 @@ def create_note_tools(
             return "笔记标题和内容都不能为空。"
 
         if note is None:
-            return (
-                f"未找到 ID={note_id} 的笔记，"
-                "或该笔记不属于当前用户。"
-            )
+            return f"未找到 ID={note_id} 的笔记，或该笔记不属于当前用户。"
 
-        return (
-            f"已更新笔记，ID={note.id}，"
-            f"标题：{note.title}"
-        )
+        return f"已更新笔记，ID={note.id}，标题：{note.title}"
 
     @tool
     def delete_note(note_id: int) -> str:
@@ -146,24 +118,15 @@ def create_note_tools(
             {
                 "kind": "tool_approval",
                 "tool_name": "delete_note",
-                "message": (
-                    "是否确认删除这条笔记？"
-                ),
+                "message": ("是否确认删除这条笔记？"),
                 "arguments": {
                     "note_id": note_id,
                 },
             }
         )
 
-        if (
-                not isinstance(decision, dict)
-                or decision.get("approved")
-                is not True
-        ):
-            return (
-                "用户拒绝删除该笔记，"
-                "操作已取消。"
-            )
+        if not isinstance(decision, dict) or decision.get("approved") is not True:
+            return "用户拒绝删除该笔记，操作已取消。"
 
         was_deleted = repository.delete(
             owner_id=owner_id,
@@ -171,9 +134,7 @@ def create_note_tools(
         )
 
         if not was_deleted:
-            return (
-                f"未找到 ID={note_id} 的笔记，或该笔记不属于当前用户。"
-            )
+            return f"未找到 ID={note_id} 的笔记，或该笔记不属于当前用户。"
 
         return f"已删除 ID={note_id} 的笔记。"
 

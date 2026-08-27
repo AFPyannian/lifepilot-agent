@@ -1,6 +1,5 @@
 """创建供 Agent 管理用户长期记忆的工具。"""
 
-
 from langchain_core.tools import BaseTool, tool
 
 from app.repositories.user_memory_repository import (
@@ -8,7 +7,9 @@ from app.repositories.user_memory_repository import (
 )
 
 
-def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list[BaseTool]:
+def create_memory_tools(
+    repository: UserMemoryRepository, owner_id: str
+) -> list[BaseTool]:
     """为指定用户创建资料和长期记忆工具。"""
 
     @tool
@@ -28,9 +29,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
                 response_style=response_style,
             )
         except ValueError:
-            return (
-                "至少需要提供一项有效的用户资料。"
-            )
+            return "至少需要提供一项有效的用户资料。"
 
         return (
             "用户资料已更新：\n"
@@ -68,9 +67,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
                 content=content,
             )
         except ValueError:
-            return (
-                "长期记忆分类或内容无效，请提供简短、明确的信息。"
-            )
+            return "长期记忆分类或内容无效，请提供简短、明确的信息。"
 
         return (
             f"已保存长期记忆，ID={memory.id}，"
@@ -90,11 +87,7 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
             return "尚未保存长期记忆。"
 
         return "\n".join(
-            (
-                f"ID={memory.id} | "
-                f"分类：{memory.category} | "
-                f"{memory.content}"
-            )
+            (f"ID={memory.id} | 分类：{memory.category} | {memory.content}")
             for memory in memories
         )
 
@@ -109,16 +102,10 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
         )
 
         if not memories:
-            return (
-                f"没有找到包含“{query.strip()}”的长期记忆。"
-            )
+            return f"没有找到包含“{query.strip()}”的长期记忆。"
 
         return "\n".join(
-            (
-                f"ID={memory.id} | "
-                f"分类：{memory.category} | "
-                f"{memory.content}"
-            )
+            (f"ID={memory.id} | 分类：{memory.category} | {memory.content}")
             for memory in memories
         )
 
@@ -133,13 +120,9 @@ def create_memory_tools(repository: UserMemoryRepository, owner_id: str) -> list
         )
 
         if not was_deleted:
-            return (
-                f"未找到 ID={memory_id} 的长期记忆，或该记忆不属于当前用户。"
-            )
+            return f"未找到 ID={memory_id} 的长期记忆，或该记忆不属于当前用户。"
 
-        return (
-            f"已遗忘 ID={memory_id} 的长期记忆。"
-        )
+        return f"已遗忘 ID={memory_id} 的长期记忆。"
 
     return [
         update_user_profile,

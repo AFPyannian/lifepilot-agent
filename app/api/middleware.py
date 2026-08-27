@@ -1,20 +1,14 @@
 """提供请求标识和访问日志中间件。"""
 
-
 import logging
 import re
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
+logger = logging.getLogger("lifepilot.api.middleware")
 
-logger = logging.getLogger(
-    "lifepilot.api.middleware"
-)
-
-REQUEST_ID_PATTERN = re.compile(
-    r"^[A-Za-z0-9._:-]{1,100}$"
-)
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,100}$")
 
 
 class RequestContextMiddleware:
@@ -42,9 +36,7 @@ class RequestContextMiddleware:
             )
             return
 
-        request_id = self._get_request_id(
-            scope
-        )
+        request_id = self._get_request_id(scope)
 
         method = scope.get(
             "method",
@@ -65,22 +57,15 @@ class RequestContextMiddleware:
             {},
         )
 
-        scope["state"]["request_id"] = (
-            request_id
-        )
+        scope["state"]["request_id"] = request_id
 
         async def send_with_request_id(
             message: dict[str, Any],
         ) -> None:
             nonlocal status_code, response_completed
 
-            if (
-                message["type"]
-                == "http.response.start"
-            ):
-                status_code = message[
-                    "status"
-                ]
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
 
                 headers = list(
                     message.get(
@@ -92,9 +77,7 @@ class RequestContextMiddleware:
                 headers.append(
                     (
                         b"x-request-id",
-                        request_id.encode(
-                            "ascii"
-                        ),
+                        request_id.encode("ascii"),
                     )
                 )
 
@@ -103,8 +86,7 @@ class RequestContextMiddleware:
             await send(message)
 
             if (
-                message["type"]
-                == "http.response.body"
+                message["type"] == "http.response.body"
                 and not message.get(
                     "more_body",
                     False,
@@ -113,10 +95,7 @@ class RequestContextMiddleware:
             ):
                 response_completed = True
 
-                duration_ms = (
-                    perf_counter()
-                    - started_at
-                ) * 1000
+                duration_ms = (perf_counter() - started_at) * 1000
 
                 logger.info(
                     "Request completed "
@@ -138,15 +117,10 @@ class RequestContextMiddleware:
             )
 
         except Exception:
-            duration_ms = (
-                perf_counter()
-                - started_at
-            ) * 1000
+            duration_ms = (perf_counter() - started_at) * 1000
 
             logger.exception(
-                "Request failed "
-                "request_id=%s method=%s "
-                "path=%s duration_ms=%.2f",
+                "Request failed request_id=%s method=%s path=%s duration_ms=%.2f",
                 request_id,
                 method,
                 path,
@@ -167,24 +141,16 @@ class RequestContextMiddleware:
             )
         )
 
-        raw_request_id = headers.get(
-            b"x-request-id"
-        )
+        raw_request_id = headers.get(b"x-request-id")
 
         if raw_request_id:
             try:
-                request_id = (
-                    raw_request_id.decode(
-                        "ascii"
-                    )
-                )
+                request_id = raw_request_id.decode("ascii")
 
             except UnicodeDecodeError:
                 request_id = ""
 
-            if REQUEST_ID_PATTERN.fullmatch(
-                request_id
-            ):
+            if REQUEST_ID_PATTERN.fullmatch(request_id):
                 return request_id
 
         return uuid4().hex

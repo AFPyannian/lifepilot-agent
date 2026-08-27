@@ -1,6 +1,5 @@
 """验证应用配置解析和约束。"""
 
-
 import pytest
 from pydantic import ValidationError
 
@@ -30,17 +29,11 @@ def test_settings_read_environment(
 
     settings = Settings(_env_file=None)
 
-    assert (
-        settings.deepseek_api_key.get_secret_value()
-        == "test-secret-key"
-    )
+    assert settings.deepseek_api_key.get_secret_value() == "test-secret-key"
     assert settings.deepseek_model == "test-model"
     assert settings.log_level == "DEBUG"
 
-    assert (
-            settings.app_database_path
-            == tmp_path / "application.db"
-    )
+    assert settings.app_database_path == tmp_path / "application.db"
 
 
 def test_api_key_is_masked():
@@ -51,10 +44,7 @@ def test_api_key_is_masked():
 
     representation = repr(settings)
 
-    assert (
-        "highly-secret-value"
-        not in representation
-    )
+    assert "highly-secret-value" not in representation
 
 
 def test_invalid_log_level_is_rejected(

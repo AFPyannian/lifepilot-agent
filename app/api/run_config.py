@@ -1,6 +1,5 @@
 """构造 LangGraph 与 LangSmith 共用的运行配置。"""
 
-
 from typing import Any
 
 from fastapi import Request
@@ -41,9 +40,7 @@ def build_run_config(
         "configurable": {
             "thread_id": thread_id,
         },
-        "run_name": (
-            f"lifepilot_{operation}"
-        ),
+        "run_name": (f"lifepilot_{operation}"),
         "tags": [
             "lifepilot",
             "fastapi",

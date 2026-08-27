@@ -1,6 +1,5 @@
 """集中定义、校验并加载 LifePilot 运行配置。"""
 
-
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -10,7 +9,6 @@ from pydantic import Field, SecretStr, ValidationError, field_validator, model_v
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.exceptions import ConfigurationError
-
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -26,30 +24,24 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
-
     deepseek_api_key: SecretStr
 
     deepseek_model: str = Field(default="deepseek-v4-flash", min_length=1)
 
-
     owner_id: str = Field(default="local-user", min_length=1)
     default_thread_id: str = Field(default="main", min_length=1)
 
+    app_database_path: Path = PROJECT_ROOT / "data" / "lifepilot.db"
 
-    app_database_path: Path = (PROJECT_ROOT / "data" / "lifepilot.db")
-
-    checkpoint_database_path: Path = (PROJECT_ROOT / "data" / "checkpoints.db")
-
+    checkpoint_database_path: Path = PROJECT_ROOT / "data" / "checkpoints.db"
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
-    log_file_path: Path = (PROJECT_ROOT / "logs" / "lifepilot.log")
+    log_file_path: Path = PROJECT_ROOT / "logs" / "lifepilot.log"
     log_max_bytes: int = Field(default=1_000_000, gt=0)
     log_backup_count: int = Field(default=3, ge=1)
 
-
     app_environment: Literal["development", "test", "production"] = "development"
-
 
     langsmith_tracing: bool = False
     langsmith_api_key: SecretStr | None = None
@@ -57,23 +49,18 @@ class Settings(BaseSettings):
     langsmith_endpoint: str = "https://apac.api.smith.langchain.com"
     langsmith_workspace_id: str | None = None
 
-
     langsmith_hide_inputs: bool = False
     langsmith_hide_outputs: bool = False
 
-
     langgraph_strict_msgpack: bool = True
 
+    knowledge_source_directory: Path = PROJECT_ROOT / "knowledge_base"
 
-    knowledge_source_directory: Path = (PROJECT_ROOT / "knowledge_base")
-
-    chroma_persist_directory: Path = (PROJECT_ROOT / "data" / "chroma")
-
+    chroma_persist_directory: Path = PROJECT_ROOT / "data" / "chroma"
 
     embedding_model_name: str = "models/bge-small-zh-v1.5"
 
     embedding_device: Literal["cpu", "cuda"] = "cpu"
-
 
     knowledge_chunk_size: int = Field(default=700, gt=0)
 
@@ -88,7 +75,10 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def normalize_log_level(cls, value) -> str:
+    def normalize_log_level(
+        cls,
+        value: object,
+    ) -> str:
         """将日志级别规范化为大写形式。"""
         return str(value).upper()
 
@@ -126,9 +116,7 @@ class Settings(BaseSettings):
     def validate_knowledge_chunking(self) -> "Settings":
         """确保文本块重叠长度小于文本块长度。"""
         if self.knowledge_chunk_overlap >= self.knowledge_chunk_size:
-            raise ValueError(
-                "knowledge_chunk_overlap 必须小于 knowledge_chunk_size"
-            )
+            raise ValueError("knowledge_chunk_overlap 必须小于 knowledge_chunk_size")
 
         return self
 
@@ -139,21 +127,13 @@ class Settings(BaseSettings):
         api_key = ""
 
         if self.langsmith_api_key is not None:
-            api_key = (
-                self.langsmith_api_key
-                .get_secret_value()
-                .strip()
-            )
+            api_key = self.langsmith_api_key.get_secret_value().strip()
 
         if self.langsmith_tracing and not api_key:
-            raise ValueError(
-                "启用LangSmith追踪时必须配置 LANGSMITH_API_KEY"
-            )
+            raise ValueError("启用LangSmith追踪时必须配置 LANGSMITH_API_KEY")
 
         if self.langsmith_tracing and not self.langsmith_project.strip():
-            raise ValueError(
-                "启用LangSmith追踪时项目名称不能为空"
-            )
+            raise ValueError("启用LangSmith追踪时项目名称不能为空")
 
         return self
 
@@ -162,17 +142,13 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """读取并缓存全局应用配置。"""
     try:
-        return Settings()
+        return Settings()  # type: ignore[call-arg]
     except ValidationError as error:
-        raise ConfigurationError(
-            "Application settings validation failed."
-        ) from error
+        raise ConfigurationError("Application settings validation failed.") from error
 
 
 def apply_runtime_environment(settings: Settings) -> None:
     """向依赖库写入必须的进程级运行参数。"""
     os.environ["LANGGRAPH_STRICT_MSGPACK"] = (
-        "true"
-        if settings.langgraph_strict_msgpack
-        else "false"
+        "true" if settings.langgraph_strict_msgpack else "false"
     )

@@ -1,25 +1,33 @@
 """定义 LifePilot Agent 状态、节点、工具和执行流程。"""
 
-
 import logging
-from typing import Annotated, Protocol
+from collections.abc import Sequence
+from typing import Annotated, Any, Protocol
 
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
+from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from typing_extensions import TypedDict
 
 from app.config import Settings, get_settings
 from app.exceptions import LifePilotError, ModelServiceError
-from app.model import create_model
-from app.memory_context import build_user_memory_context
-from app.repositories.todo_repository import TodoRepository
-from app.repositories.note_repository import NoteRepository
-from app.repositories.user_memory_repository import UserMemoryRepository
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
-from app.tools import create_todo_tools, create_note_tools, create_memory_tools, create_knowledge_tools
+from app.memory_context import build_user_memory_context
+from app.model import create_model
+from app.repositories.note_repository import NoteRepository
+from app.repositories.todo_repository import TodoRepository
+from app.repositories.user_memory_repository import UserMemoryRepository
+from app.tools import (
+    create_knowledge_tools,
+    create_memory_tools,
+    create_note_tools,
+    create_todo_tools,
+)
 
 logger = logging.getLogger("lifepilot.graph")
 
@@ -42,9 +50,7 @@ def handle_tool_error(error: Exception) -> str:
     if isinstance(error, ValueError):
         return f"工具执行失败：{error}"
 
-    return (
-        "工具执行失败，详细原因已经写入日志。请检查 logs/lifepilot.log。"
-    )
+    return "工具执行失败，详细原因已经写入日志。请检查 logs/lifepilot.log。"
 
 
 # 系统提示词定义模型角色、工具边界和安全约束。
@@ -87,11 +93,12 @@ SYSTEM_PROMPT = """
 class ChatModel(Protocol):
     """描述 Agent 所需的最小聊天模型接口。"""
 
-
-    def bind_tools(self, tools):
+    def bind_tools(
+        self,
+        tools: Sequence[BaseTool],
+    ) -> Any:
         """返回绑定指定工具后的模型。"""
         ...
-
 
     def invoke(self, messages: list[AnyMessage]) -> AnyMessage:
         """使用消息历史调用模型并返回一条消息。"""
@@ -100,7 +107,6 @@ class ChatModel(Protocol):
 
 class AssistantState(TypedDict):
     """定义在 LangGraph 节点之间共享的消息状态。"""
-
 
     messages: Annotated[list[AnyMessage], add_messages]
 
@@ -114,62 +120,46 @@ def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
     while index < len(messages):
         message = messages[index]
 
-        if (
-            isinstance(message, AIMessage)
-            and message.tool_calls
-        ):
+        if isinstance(message, AIMessage) and message.tool_calls:
             expected_tool_call_ids = {
                 tool_call.get("id")
                 for tool_call in message.tool_calls
                 if tool_call.get("id")
             }
 
-            following_tool_messages: list[
-                ToolMessage
-            ] = []
+            following_tool_messages: list[ToolMessage] = []
 
             next_index = index + 1
 
+            while next_index < len(messages):
+                next_message = messages[next_index]
 
-            while (
-                next_index < len(messages)
-                and isinstance(
-                    messages[next_index],
+                if not isinstance(
+                    next_message,
                     ToolMessage,
-                )
-            ):
-                following_tool_messages.append(
-                    messages[next_index]
-                )
+                ):
+                    break
+
+                following_tool_messages.append(next_message)
                 next_index += 1
 
             received_tool_call_ids = [
-                tool_message.tool_call_id
-                for tool_message
-                in following_tool_messages
+                tool_message.tool_call_id for tool_message in following_tool_messages
             ]
 
-            received_tool_call_id_set = set(
-                received_tool_call_ids
-            )
+            received_tool_call_id_set = set(received_tool_call_ids)
 
             complete_tool_sequence = (
                 bool(expected_tool_call_ids)
-                and received_tool_call_id_set
-                == expected_tool_call_ids
-                and len(received_tool_call_ids)
-                == len(expected_tool_call_ids)
+                and received_tool_call_id_set == expected_tool_call_ids
+                and len(received_tool_call_ids) == len(expected_tool_call_ids)
             )
 
             if complete_tool_sequence:
-
                 cleaned_messages.append(message)
 
-                cleaned_messages.extend(
-                    following_tool_messages
-                )
+                cleaned_messages.extend(following_tool_messages)
             else:
-
                 cleaned_messages.append(
                     AIMessage(
                         id=message.id,
@@ -181,12 +171,9 @@ def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
                     )
                 )
 
-
                 logger_message = (
-                    "Incomplete tool call history "
-                    "was removed before model invocation"
+                    "Incomplete tool call history was removed before model invocation"
                 )
-
 
                 _ = logger_message
 
@@ -194,7 +181,6 @@ def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
             continue
 
         if isinstance(message, ToolMessage):
-
             index += 1
             continue
 
@@ -207,13 +193,13 @@ def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
 def build_graph(
     settings: Settings | None = None,
     model: ChatModel | None = None,
-    checkpointer=None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
     todo_repository: TodoRepository | None = None,
     note_repository: NoteRepository | None = None,
     memory_repository: UserMemoryRepository | None = None,
     knowledge_service: KnowledgeBaseService | None = None,
     owner_id: str = "local-user",
-):
+) -> CompiledStateGraph:
     """组装模型、仓储、工具和 Checkpointer，返回可执行 Agent 图。"""
 
     active_settings = settings
@@ -227,52 +213,29 @@ def build_graph(
 
         return active_settings
 
+    active_model = model if model is not None else create_model(require_settings())
 
-    active_model = (
-        model
-        if model is not None
-        else create_model(require_settings())
-    )
-
-
-    active_checkpointer = (
-        checkpointer
-        if checkpointer is not None
-        else InMemorySaver()
-    )
-
+    active_checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
 
     active_todo_repository = (
         todo_repository
         if todo_repository is not None
-        else TodoRepository(
-            require_settings().app_database_path
-        )
+        else TodoRepository(require_settings().app_database_path)
     )
 
     active_note_repository = (
         note_repository
         if note_repository is not None
-        else NoteRepository(
-            require_settings().app_database_path
-        )
+        else NoteRepository(require_settings().app_database_path)
     )
 
     active_memory_repository = (
         memory_repository
         if memory_repository is not None
-        else UserMemoryRepository(
-            require_settings().app_database_path
-        )
+        else UserMemoryRepository(require_settings().app_database_path)
     )
 
-
-    active_owner_id = (
-        owner_id
-        if owner_id is not None
-        else require_settings().owner_id
-    )
-
+    active_owner_id = owner_id if owner_id is not None else require_settings().owner_id
 
     todo_tools = create_todo_tools(
         repository=active_todo_repository,
@@ -289,26 +252,18 @@ def build_graph(
         owner_id=active_owner_id,
     )
 
-
-    active_knowledge_service = (
-        knowledge_service
-    )
-
+    active_knowledge_service = knowledge_service
 
     if active_knowledge_service is None and active_settings is not None:
-        active_knowledge_service = create_knowledge_base_service(
-                active_settings
-        )
-
+        active_knowledge_service = create_knowledge_base_service(active_settings)
 
     knowledge_tools = []
 
     if active_knowledge_service is not None:
         knowledge_tools = create_knowledge_tools(
-                service=active_knowledge_service,
-                owner_id=active_owner_id,
+            service=active_knowledge_service,
+            owner_id=active_owner_id,
         )
-
 
     all_tools = [
         *todo_tools,
@@ -317,14 +272,10 @@ def build_graph(
         *knowledge_tools,
     ]
 
-
-    model_with_tools = active_model.bind_tools(
-        all_tools
-    )
+    model_with_tools = active_model.bind_tools(all_tools)
 
     def assistant_node(state: AssistantState) -> dict:
         """注入用户记忆并调用已绑定工具的模型。"""
-
 
         memory_context = build_user_memory_context(
             repository=active_memory_repository,
@@ -332,11 +283,8 @@ def build_graph(
             memory_limit=20,
         )
 
-
         # 清除不完整工具调用，避免向模型发送非法消息序列。
-        safe_history = sanitize_messages_for_model(
-            state["messages"]
-        )
+        safe_history = sanitize_messages_for_model(state["messages"])
 
         messages_for_model = [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -344,32 +292,21 @@ def build_graph(
             *safe_history,
         ]
 
-
         try:
-            response = model_with_tools.invoke(
-                messages_for_model
-            )
+            response = model_with_tools.invoke(messages_for_model)
         except LifePilotError:
             raise
         except Exception as error:
-            raise ModelServiceError(
-                "DeepSeek invocation failed."
-            ) from error
-
+            raise ModelServiceError("DeepSeek invocation failed.") from error
 
         return {"messages": [response]}
 
-
-    builder = StateGraph(
-        AssistantState
-    )
-
+    builder = StateGraph(AssistantState)
 
     builder.add_node(
         "assistant",
         assistant_node,
     )
-
 
     builder.add_node(
         "tools",
@@ -379,24 +316,20 @@ def build_graph(
         ),
     )
 
-
     builder.add_edge(
         START,
         "assistant",
     )
-
 
     builder.add_conditional_edges(
         "assistant",
         tools_condition,
     )
 
-
     builder.add_edge(
         "tools",
         "assistant",
     )
-
 
     return builder.compile(
         checkpointer=active_checkpointer,

@@ -1,0 +1,85 @@
+minimum_pre_commit_version: "4.6.2"
+
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.4
+
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+        stages:
+          - pre-commit
+
+      - id: ruff-format
+        stages:
+          - pre-commit
+
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+
+    hooks:
+      - id: trailing-whitespace
+        stages:
+          - pre-commit
+
+      - id: end-of-file-fixer
+        stages:
+          - pre-commit
+
+      - id: check-yaml
+        stages:
+          - pre-commit
+
+      - id: check-json
+        stages:
+          - pre-commit
+
+      - id: check-toml
+        stages:
+          - pre-commit
+
+      - id: check-merge-conflict
+        stages:
+          - pre-commit
+
+      - id: check-case-conflict
+        stages:
+          - pre-commit
+
+      - id: check-added-large-files
+        args:
+          - --maxkb=5000
+        stages:
+          - pre-commit
+
+      - id: detect-private-key
+        stages:
+          - pre-commit
+
+
+  - repo: local
+
+    hooks:
+      - id: mypy
+        name: mypy type check
+        entry: python -m mypy app
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-commit
+
+      - id: pytest-coverage
+        name: pytest with coverage
+        entry: python -m pytest --cov=app --cov-report=term-missing
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-push

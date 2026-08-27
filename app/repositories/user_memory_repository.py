@@ -1,10 +1,9 @@
 """使用 SQLite 持久化用户资料和长期记忆。"""
 
-
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 """
@@ -14,6 +13,7 @@ from pathlib import Path
 3. 一般架构为: 对话 —— 提取值得记忆的信息 —— 存储 —— 检索 —— 注入当前上下文
 4. 记忆内容大致包括：用户资料(偏好、习惯、背景等)、事件记忆(发生过的事件)、经验记忆(从过往会话中沉淀出的内容)、...
 """
+
 
 @dataclass(frozen=True)
 class UserProfile:
@@ -42,7 +42,7 @@ class UserMemory:
 class UserMemoryRepository:
     """管理 SQLite 中的用户资料和长期记忆。"""
 
-    def __init__(self,database_path: str | Path) -> None:
+    def __init__(self, database_path: str | Path) -> None:
         """保存数据库路径并初始化记忆相关数据表。"""
         self._database_path = Path(database_path)
 
@@ -55,19 +55,16 @@ class UserMemoryRepository:
 
     def _connect(self) -> sqlite3.Connection:
         """打开启用行对象访问的 SQLite 连接。"""
-        connection = sqlite3.connect(
-            self._database_path
-        )
+        connection = sqlite3.connect(self._database_path)
         connection.row_factory = sqlite3.Row
 
         return connection
 
     def _initialize_database(self) -> None:
         """创建用户资料、长期记忆及其索引。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     CREATE TABLE IF NOT EXISTS
                         user_profiles (
                             owner_id TEXT PRIMARY KEY,
@@ -78,10 +75,10 @@ class UserMemoryRepository:
                             updated_at TEXT NOT NULL
                         )
                     """
-                )
+            )
 
-                connection.execute(
-                    """
+            connection.execute(
+                """
                     CREATE TABLE IF NOT EXISTS
                         user_memories (
                             id INTEGER PRIMARY KEY,
@@ -97,15 +94,15 @@ class UserMemoryRepository:
                             )
                         )
                     """
-                )
+            )
 
-                connection.execute(
-                    """
+            connection.execute(
+                """
                     CREATE INDEX IF NOT EXISTS
                         idx_user_memories_owner
                     ON user_memories (owner_id)
                     """
-                )
+            )
 
     def get_profile(
         self,
@@ -151,60 +148,39 @@ class UserMemoryRepository:
                 response_style,
             )
         ):
-            raise ValueError(
-                "At least one profile field is required."
-            )
+            raise ValueError("At least one profile field is required.")
 
         existing = self.get_profile(owner_id)
 
         updated_display_name = self._merge_field(
             new_value=display_name,
-            old_value=(
-                existing.display_name
-                if existing is not None
-                else None
-            ),
+            old_value=(existing.display_name if existing is not None else None),
             field_name="display name",
         )
 
         updated_occupation = self._merge_field(
             new_value=occupation,
-            old_value=(
-                existing.occupation
-                if existing is not None
-                else None
-            ),
+            old_value=(existing.occupation if existing is not None else None),
             field_name="occupation",
         )
 
         updated_goal = self._merge_field(
             new_value=current_goal,
-            old_value=(
-                existing.current_goal
-                if existing is not None
-                else None
-            ),
+            old_value=(existing.current_goal if existing is not None else None),
             field_name="current goal",
         )
 
         updated_style = self._merge_field(
             new_value=response_style,
-            old_value=(
-                existing.response_style
-                if existing is not None
-                else None
-            ),
+            old_value=(existing.response_style if existing is not None else None),
             field_name="response style",
         )
 
-        updated_at = datetime.now(
-            timezone.utc
-        ).isoformat()
+        updated_at = datetime.now(UTC).isoformat()
 
-        with closing(self._connect()) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     INSERT INTO user_profiles (
                         owner_id,
                         display_name,
@@ -227,15 +203,15 @@ class UserMemoryRepository:
                         updated_at =
                             excluded.updated_at
                     """,
-                    (
-                        owner_id,
-                        updated_display_name,
-                        updated_occupation,
-                        updated_goal,
-                        updated_style,
-                        updated_at,
-                    ),
-                )
+                (
+                    owner_id,
+                    updated_display_name,
+                    updated_occupation,
+                    updated_goal,
+                    updated_style,
+                    updated_at,
+                ),
+            )
 
         return UserProfile(
             owner_id=owner_id,
@@ -257,24 +233,16 @@ class UserMemoryRepository:
         normalized_content = content.strip()
 
         if not normalized_category:
-            raise ValueError(
-                "Memory category cannot be empty."
-            )
+            raise ValueError("Memory category cannot be empty.")
 
         if not normalized_content:
-            raise ValueError(
-                "Memory content cannot be empty."
-            )
+            raise ValueError("Memory content cannot be empty.")
 
         if len(normalized_category) > 50:
-            raise ValueError(
-                "Memory category is too long."
-            )
+            raise ValueError("Memory category is too long.")
 
         if len(normalized_content) > 500:
-            raise ValueError(
-                "Memory content is too long."
-            )
+            raise ValueError("Memory content is too long.")
 
         with closing(self._connect()) as connection:
             existing_row = connection.execute(
@@ -299,13 +267,9 @@ class UserMemoryRepository:
             ).fetchone()
 
             if existing_row is not None:
-                return self._row_to_memory(
-                    existing_row
-                )
+                return self._row_to_memory(existing_row)
 
-            timestamp = datetime.now(
-                timezone.utc
-            ).isoformat()
+            timestamp = datetime.now(UTC).isoformat()
 
             with connection:
                 cursor = connection.execute(
@@ -331,9 +295,7 @@ class UserMemoryRepository:
                 memory_id = cursor.lastrowid
 
         if memory_id is None:
-            raise RuntimeError(
-                "Failed to obtain the memory ID."
-            )
+            raise RuntimeError("Failed to obtain the memory ID.")
 
         return UserMemory(
             id=memory_id,
@@ -376,10 +338,7 @@ class UserMemoryRepository:
                 ),
             ).fetchall()
 
-        return [
-            self._row_to_memory(row)
-            for row in rows
-        ]
+        return [self._row_to_memory(row) for row in rows]
 
     def search(
         self,
@@ -419,10 +378,7 @@ class UserMemoryRepository:
                 ),
             ).fetchall()
 
-        return [
-            self._row_to_memory(row)
-            for row in rows
-        ]
+        return [self._row_to_memory(row) for row in rows]
 
     def delete_memory(
         self,
@@ -430,21 +386,20 @@ class UserMemoryRepository:
         memory_id: int,
     ) -> bool:
         """删除指定用户的一条长期记忆。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     DELETE FROM user_memories
                     WHERE id = ?
                       AND owner_id = ?
                     """,
-                    (
-                        memory_id,
-                        owner_id,
-                    ),
-                )
+                (
+                    memory_id,
+                    owner_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     @staticmethod
     def _merge_field(
@@ -459,14 +414,10 @@ class UserMemoryRepository:
         normalized_value = new_value.strip()
 
         if not normalized_value:
-            raise ValueError(
-                f"{field_name} cannot be empty."
-            )
+            raise ValueError(f"{field_name} cannot be empty.")
 
         if len(normalized_value) > 500:
-            raise ValueError(
-                f"{field_name} is too long."
-            )
+            raise ValueError(f"{field_name} is too long.")
 
         return normalized_value
 

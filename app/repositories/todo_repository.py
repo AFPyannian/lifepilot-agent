@@ -1,10 +1,9 @@
 """使用 SQLite 持久化用户待办事项。"""
 
-
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -25,25 +24,19 @@ class TodoRepository:
     def __init__(self, database_path: str | Path) -> None:
         """保存数据库路径并初始化待办表。"""
 
-
         self._database_path = Path(database_path)
-
 
         self._database_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-
         self._initialize_database()
 
     def _connect(self) -> sqlite3.Connection:
         """打开启用行对象访问的 SQLite 连接。"""
 
-
-        connection = sqlite3.connect(
-            self._database_path
-        )
+        connection = sqlite3.connect(self._database_path)
 
         connection.row_factory = sqlite3.Row
 
@@ -52,12 +45,9 @@ class TodoRepository:
     def _initialize_database(self) -> None:
         """创建待办表和查询索引。"""
 
-
-        with closing(self._connect()) as connection:
-            with connection:
-
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     CREATE TABLE IF NOT EXISTS todos (
                         id INTEGER PRIMARY KEY,
                         owner_id TEXT NOT NULL,
@@ -68,37 +58,28 @@ class TodoRepository:
                         created_at TEXT NOT NULL
                     )
                     """
-                )
+            )
 
-
-                connection.execute(
-                    """
+            connection.execute(
+                """
                     CREATE INDEX IF NOT EXISTS
                         idx_todos_owner_id
                     ON todos (owner_id)
                     """
-                )
+            )
 
     def add(self, owner_id: str, task: str) -> TodoItem:
         """创建并返回一条用户待办。"""
 
-
         normalized_task = task.strip()
         if not normalized_task:
-            raise ValueError(
-                "Todo content cannot be empty."
-            )
+            raise ValueError("Todo content cannot be empty.")
 
+        created_at = datetime.now(UTC).isoformat()
 
-        created_at = datetime.now(
-            timezone.utc
-        ).isoformat()
-
-        with closing(self._connect()) as connection:
-            with connection:
-
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     INSERT INTO todos (
                         owner_id,
                         task,
@@ -107,21 +88,17 @@ class TodoRepository:
                     )
                     VALUES (?, ?, 0, ?)
                     """,
-                    (
-                        owner_id,
-                        normalized_task,
-                        created_at,
-                    ),
-                )
+                (
+                    owner_id,
+                    normalized_task,
+                    created_at,
+                ),
+            )
 
-
-                todo_id = cursor.lastrowid
-
+            todo_id = cursor.lastrowid
 
         if todo_id is None:
-            raise RuntimeError(
-                "Failed to obtain the new todo ID."
-            )
+            raise RuntimeError("Failed to obtain the new todo ID.")
 
         return TodoItem(
             id=todo_id,
@@ -149,47 +126,42 @@ class TodoRepository:
                 (owner_id,),
             ).fetchall()
 
-        return [
-            self._row_to_item(row)
-            for row in rows
-        ]
+        return [self._row_to_item(row) for row in rows]
 
     def mark_completed(self, owner_id: str, todo_id: int) -> bool:
         """将指定用户的一条待办标记为完成。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     UPDATE todos
                     SET is_completed = 1
                     WHERE id = ?
                       AND owner_id = ?
                     """,
-                    (
-                        todo_id,
-                        owner_id,
-                    ),
-                )
+                (
+                    todo_id,
+                    owner_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     def delete(self, owner_id: str, todo_id: int) -> bool:
         """删除指定用户的一条待办。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     DELETE FROM todos
                     WHERE id = ?
                       AND owner_id = ?
                     """,
-                    (
-                        todo_id,
-                        owner_id,
-                    ),
-                )
+                (
+                    todo_id,
+                    owner_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     @staticmethod
     def _row_to_item(row: sqlite3.Row) -> TodoItem:

@@ -1,6 +1,5 @@
 """验证 SQLite Checkpointer 的持久化行为。"""
 
-
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -32,37 +31,21 @@ class FakeChatModel:
     def invoke(self, messages):
         """返回包含用户消息数量的固定回答。"""
         human_messages = [
-            message
-            for message in messages
-            if isinstance(message, HumanMessage)
+            message for message in messages if isinstance(message, HumanMessage)
         ]
 
-        return AIMessage(
-            content=(
-                f"已看到 "
-                f"{len(human_messages)} "
-                f"条用户消息"
-            )
-        )
+        return AIMessage(content=(f"已看到 {len(human_messages)} 条用户消息"))
 
 
 def test_in_memory_checkpointer_still_works(tmp_path):
-    application_database_path = (
-            tmp_path / "application.db"
-    )
+    application_database_path = tmp_path / "application.db"
 
     graph = build_graph(
         model=FakeChatModel(),
         checkpointer=InMemorySaver(),
-        todo_repository=TodoRepository(
-            application_database_path
-        ),
-        note_repository=NoteRepository(
-            application_database_path
-        ),
-        memory_repository=UserMemoryRepository(
-            application_database_path
-        ),
+        todo_repository=TodoRepository(application_database_path),
+        note_repository=NoteRepository(application_database_path),
+        memory_repository=UserMemoryRepository(application_database_path),
         owner_id="test-user",
     )
 
@@ -93,14 +76,9 @@ def test_sqlite_checkpointer_survives_reopen(
         "true",
     )
 
-    checkpoint_path = (
-        tmp_path
-        / "checkpoints.db"
-    )
+    checkpoint_path = tmp_path / "checkpoints.db"
 
-    application_database_path = (
-            tmp_path / "application.db"
-    )
+    application_database_path = tmp_path / "application.db"
 
     config = {
         "configurable": {
@@ -108,78 +86,50 @@ def test_sqlite_checkpointer_survives_reopen(
         }
     }
 
-    with open_sqlite_checkpointer(
-        checkpoint_path
-    ) as first_checkpointer:
+    with open_sqlite_checkpointer(checkpoint_path) as first_checkpointer:
         first_graph = build_graph(
             model=FakeChatModel(),
             checkpointer=first_checkpointer,
-            todo_repository=TodoRepository(
-                application_database_path
-            ),
-            note_repository=NoteRepository(
-                application_database_path
-            ),
-            memory_repository=UserMemoryRepository(
-                application_database_path
-            ),
+            todo_repository=TodoRepository(application_database_path),
+            note_repository=NoteRepository(application_database_path),
+            memory_repository=UserMemoryRepository(application_database_path),
             owner_id="test-user",
         )
 
         first_result = first_graph.invoke(
             {
                 "messages": [
-                    HumanMessage(
-                        content="第一条消息"
-                    ),
+                    HumanMessage(content="第一条消息"),
                 ],
             },
             config=config,
         )
 
-        assert (
-            len(first_result["messages"])
-            == 2
-        )
+        assert len(first_result["messages"]) == 2
 
-    with open_sqlite_checkpointer(
-        checkpoint_path
-    ) as second_checkpointer:
+    with open_sqlite_checkpointer(checkpoint_path) as second_checkpointer:
         second_graph = build_graph(
             model=FakeChatModel(),
             checkpointer=second_checkpointer,
-            todo_repository=TodoRepository(
-                application_database_path
-            ),
-            note_repository=NoteRepository(
-                application_database_path
-            ),
-            memory_repository=UserMemoryRepository(
-                application_database_path
-            ),
+            todo_repository=TodoRepository(application_database_path),
+            note_repository=NoteRepository(application_database_path),
+            memory_repository=UserMemoryRepository(application_database_path),
             owner_id="test-user",
         )
 
         second_result = second_graph.invoke(
             {
                 "messages": [
-                    HumanMessage(
-                        content="第二条消息"
-                    ),
+                    HumanMessage(content="第二条消息"),
                 ],
             },
             config=config,
         )
 
-        assert (
-            len(second_result["messages"])
-            == 4
-        )
+        assert len(second_result["messages"]) == 4
 
-        assert (
-            second_result["messages"][-1].content
-            == "已看到 2 条用户消息"
-        )
+        assert second_result["messages"][-1].content == "已看到 2 条用户消息"
+
 
 def test_delete_thread_removes_checkpoints(
     tmp_path,
@@ -190,13 +140,9 @@ def test_delete_thread_removes_checkpoints(
         "true",
     )
 
-    checkpoint_path = (
-        tmp_path / "checkpoints.db"
-    )
+    checkpoint_path = tmp_path / "checkpoints.db"
 
-    application_database_path = (
-        tmp_path / "application.db"
-    )
+    application_database_path = tmp_path / "application.db"
 
     config = {
         "configurable": {
@@ -204,53 +150,25 @@ def test_delete_thread_removes_checkpoints(
         }
     }
 
-    with open_sqlite_checkpointer(
-        checkpoint_path
-    ) as checkpointer:
+    with open_sqlite_checkpointer(checkpoint_path) as checkpointer:
         graph = build_graph(
             model=FakeChatModel(),
             checkpointer=checkpointer,
-            todo_repository=TodoRepository(
-                application_database_path
-            ),
-            note_repository=NoteRepository(
-                application_database_path
-            ),
-            memory_repository=(
-                UserMemoryRepository(
-                    application_database_path
-                )
-            ),
+            todo_repository=TodoRepository(application_database_path),
+            note_repository=NoteRepository(application_database_path),
+            memory_repository=(UserMemoryRepository(application_database_path)),
             owner_id="test-user",
         )
 
         graph.invoke(
-            {
-                "messages": [
-                    HumanMessage(
-                        content="测试消息"
-                    )
-                ]
-            },
+            {"messages": [HumanMessage(content="测试消息")]},
             config=config,
         )
 
-        assert (
-            graph.get_state(
-                config
-            ).values["messages"]
-        )
+        assert graph.get_state(config).values["messages"]
 
-        checkpointer.delete_thread(
-            "delete-thread"
-        )
+        checkpointer.delete_thread("delete-thread")
 
-        empty_snapshot = graph.get_state(
-            config
-        )
+        empty_snapshot = graph.get_state(config)
 
-        assert (
-            empty_snapshot.values
-            .get("messages", [])
-            == []
-        )
+        assert empty_snapshot.values.get("messages", []) == []

@@ -1,8 +1,7 @@
 """提供会话列表、读取、重命名和删除接口。"""
 
-
 from collections.abc import Sequence
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -29,7 +28,6 @@ from app.api.schemas import (
     RenameConversationRequest,
 )
 
-
 router = APIRouter()
 
 ThreadIdPath = Annotated[
@@ -44,9 +42,7 @@ ThreadIdPath = Annotated[
 
 @router.get(
     "/conversations",
-    response_model=(
-        ConversationListResponse
-    ),
+    response_model=(ConversationListResponse),
     summary="查看历史会话",
 )
 def list_conversations(
@@ -56,41 +52,30 @@ def list_conversations(
     (
         repository,
         settings,
-        graph,
-        graph_lock,
+        _graph,
+        _graph_lock,
     ) = _get_dependencies(request)
 
-    conversations = (
-        repository.list_conversations(
-            owner_id=settings.owner_id,
-        )
+    conversations = repository.list_conversations(
+        owner_id=settings.owner_id,
     )
 
     return ConversationListResponse(
         conversations=[
             ConversationSummary(
-                thread_id=(
-                    conversation.thread_id
-                ),
+                thread_id=(conversation.thread_id),
                 title=conversation.title,
-                created_at=(
-                    conversation.created_at
-                ),
-                updated_at=(
-                    conversation.updated_at
-                ),
+                created_at=(conversation.created_at),
+                updated_at=(conversation.updated_at),
             )
-            for conversation
-            in conversations
+            for conversation in conversations
         ]
     )
 
 
 @router.get(
     "/conversations/{thread_id}",
-    response_model=(
-        ConversationDetailResponse
-    ),
+    response_model=(ConversationDetailResponse),
     summary="加载历史会话",
 )
 def get_conversation(
@@ -112,9 +97,7 @@ def get_conversation(
 
     if conversation is None:
         raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-            ),
+            status_code=(status.HTTP_404_NOT_FOUND),
             detail="会话不存在。",
         )
 
@@ -125,15 +108,11 @@ def get_conversation(
     }
 
     with graph_lock:
-        snapshot = graph.get_state(
-            config
-        )
+        snapshot = graph.get_state(config)
 
-        pending_interrupt = (
-            find_pending_interrupt(
-                graph=graph,
-                config=config,
-            )
+        pending_interrupt = find_pending_interrupt(
+            graph=graph,
+            config=config,
         )
 
     messages = _convert_messages(
@@ -146,25 +125,15 @@ def get_conversation(
     pending_approval = None
 
     if pending_interrupt is not None:
-        pending_approval = (
-            normalize_approval_request(
-                pending_interrupt
-            )
-        )
+        pending_approval = normalize_approval_request(pending_interrupt)
 
     return ConversationDetailResponse(
         thread_id=conversation.thread_id,
         title=conversation.title,
-        created_at=(
-            conversation.created_at
-        ),
-        updated_at=(
-            conversation.updated_at
-        ),
+        created_at=(conversation.created_at),
+        updated_at=(conversation.updated_at),
         messages=messages,
-        pending_approval=(
-            pending_approval
-        ),
+        pending_approval=(pending_approval),
     )
 
 
@@ -182,8 +151,8 @@ def rename_conversation(
     (
         repository,
         settings,
-        graph,
-        graph_lock,
+        _graph,
+        _graph_lock,
     ) = _get_dependencies(request)
 
     renamed = repository.rename(
@@ -194,9 +163,7 @@ def rename_conversation(
 
     if not renamed:
         raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-            ),
+            status_code=(status.HTTP_404_NOT_FOUND),
             detail="会话不存在。",
         )
 
@@ -207,29 +174,21 @@ def rename_conversation(
 
     if conversation is None:
         raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-            ),
+            status_code=(status.HTTP_404_NOT_FOUND),
             detail="会话不存在。",
         )
 
     return ConversationSummary(
         thread_id=conversation.thread_id,
         title=conversation.title,
-        created_at=(
-            conversation.created_at
-        ),
-        updated_at=(
-            conversation.updated_at
-        ),
+        created_at=(conversation.created_at),
+        updated_at=(conversation.updated_at),
     )
 
 
 @router.delete(
     "/conversations/{thread_id}",
-    response_model=(
-        DeleteConversationResponse
-    ),
+    response_model=(DeleteConversationResponse),
     summary="删除历史会话",
 )
 def delete_conversation(
@@ -240,7 +199,7 @@ def delete_conversation(
     (
         repository,
         settings,
-        graph,
+        _graph,
         graph_lock,
     ) = _get_dependencies(request)
 
@@ -248,7 +207,6 @@ def delete_conversation(
         owner_id=settings.owner_id,
         thread_id=thread_id,
     )
-
 
     if conversation is None:
         return DeleteConversationResponse(
@@ -264,29 +222,16 @@ def delete_conversation(
 
     if checkpointer is None:
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            detail=(
-                "Checkpoint服务不可用。"
-            ),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("Checkpoint服务不可用。"),
         )
 
     with graph_lock:
+        checkpointer.delete_thread(thread_id)
 
-
-        checkpointer.delete_thread(
-            thread_id
-        )
-
-        metadata_deleted = (
-            repository.delete(
-                owner_id=(
-                    settings.owner_id
-                ),
-                thread_id=thread_id,
-            )
+        metadata_deleted = repository.delete(
+            owner_id=(settings.owner_id),
+            thread_id=thread_id,
         )
 
     return DeleteConversationResponse(
@@ -323,20 +268,10 @@ def _get_dependencies(
         None,
     )
 
-    if (
-        repository is None
-        or settings is None
-        or graph is None
-        or graph_lock is None
-    ):
+    if repository is None or settings is None or graph is None or graph_lock is None:
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_503_SERVICE_UNAVAILABLE
-            ),
-            detail=(
-                "会话管理服务不可用。"
-            ),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=("会话管理服务不可用。"),
         )
 
     return (
@@ -351,11 +286,11 @@ def _convert_messages(
     messages: Sequence[Any],
 ) -> list[ConversationMessage]:
     """将内部消息转换为前端可展示的用户和助手消息。"""
-    result: list[
-        ConversationMessage
-    ] = []
+    result: list[ConversationMessage] = []
 
     for message in messages:
+        role: Literal["user", "assistant"]
+
         if isinstance(
             message,
             HumanMessage,
@@ -369,13 +304,9 @@ def _convert_messages(
             role = "assistant"
 
         else:
-
-
             continue
 
-        content = _content_to_text(
-            message.content
-        )
+        content = _content_to_text(message.content)
 
         if not content:
             continue

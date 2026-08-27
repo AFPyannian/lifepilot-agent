@@ -1,12 +1,11 @@
 """实现知识文档导入、检索、列举和删除服务。"""
 
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
 from threading import Lock
+from typing import Any
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -17,6 +16,7 @@ from app.knowledge.loaders import SUPPORTED_SUFFIXES, load_source_documents
 @dataclass(frozen=True)
 class IngestionResult:
     """记录文档索引结果。"""
+
     source_name: str
     chunk_count: int
     already_indexed: bool
@@ -25,6 +25,7 @@ class IngestionResult:
 @dataclass(frozen=True)
 class KnowledgeSource:
     """记录知识文档摘要。"""
+
     source_name: str
     chunk_count: int
     file_hash: str
@@ -32,6 +33,7 @@ class KnowledgeSource:
 
 class KnowledgeBaseService:
     """协调文档校验、切分和向量存储操作。"""
+
     def __init__(
         self,
         source_directory: Path,
@@ -41,36 +43,44 @@ class KnowledgeBaseService:
         retrieval_k: int = 4,
         max_file_bytes: int = 20_000_000,
     ) -> None:
-
         """保存知识库配置并创建中文文本切分器。"""
         self._source_directory = source_directory.resolve()
 
         self._source_directory.mkdir(parents=True, exist_ok=True)
-
 
         self._vector_store_factory = vector_store_factory
         self._vector_store: Any | None = None
         self._retrieval_k = retrieval_k
         self._max_file_bytes = max_file_bytes
 
-
         self._vector_store_lock = Lock()
-
 
         self._text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             length_function=len,
             separators=[
-                "\n\n", "\n", " ", "。", "！", "？", "；",
-                "，", "、", ".", "!", "?", ";", ",", "",
+                "\n\n",
+                "\n",
+                " ",
+                "。",
+                "！",
+                "？",
+                "；",
+                "，",
+                "、",
+                ".",
+                "!",
+                "?",
+                ";",
+                ",",
+                "",
             ],
         )
 
     def ingest(self, owner_id: str, filename: str) -> IngestionResult:
         """索引文档，并以内容哈希避免重复处理。"""
         source_path = self._resolve_source(filename)
-
 
         file_hash = sha256(source_path.read_bytes()).hexdigest()
 
@@ -88,10 +98,8 @@ class KnowledgeBaseService:
         existing_ids = existing.get("ids", [])
         existing_metadata = existing.get("metadatas", [])
 
-
         if existing_ids and all(
-            metadata.get("file_hash") == file_hash
-            for metadata in existing_metadata
+            metadata.get("file_hash") == file_hash for metadata in existing_metadata
         ):
             return IngestionResult(
                 source_name=source_path.name,
@@ -99,9 +107,7 @@ class KnowledgeBaseService:
                 already_indexed=True,
             )
 
-
         documents = load_source_documents(source_path)
-
 
         for document in documents:
             document.metadata.update(
@@ -113,7 +119,6 @@ class KnowledgeBaseService:
                 }
             )
 
-
         chunks = self._text_splitter.split_documents(documents)
 
         if not chunks:
@@ -122,25 +127,16 @@ class KnowledgeBaseService:
         chunk_ids: list[str] = []
 
         for index, chunk in enumerate(chunks):
-
             chunk.metadata["chunk_index"] = index
 
-
             chunk_id = sha256(
-                (
-                    f"{owner_id}:"
-                    f"{source_path.name}:"
-                    f"{file_hash}:"
-                    f"{index}"
-                ).encode("utf-8")
+                (f"{owner_id}:{source_path.name}:{file_hash}:{index}").encode()
             ).hexdigest()
 
             chunk_ids.append(chunk_id)
 
-
         if existing_ids:
             store.delete(ids=existing_ids)
-
 
         store.add_documents(
             documents=chunks,
@@ -170,9 +166,7 @@ class KnowledgeBaseService:
 
     def list_sources(self, owner_id: str) -> list[KnowledgeSource]:
         """汇总当前用户已经索引的文档。"""
-        result = self._get_store().get(
-            where={"owner_id": owner_id}
-        )
+        result = self._get_store().get(where={"owner_id": owner_id})
 
         sources: dict[str, KnowledgeSource] = {}
 
@@ -229,7 +223,6 @@ class KnowledgeBaseService:
         if vector_store is None:
             return
 
-
         close_vector_store = getattr(
             vector_store,
             "close",
@@ -239,7 +232,6 @@ class KnowledgeBaseService:
         if callable(close_vector_store):
             close_vector_store()
             return
-
 
         client = getattr(
             vector_store,
@@ -262,23 +254,16 @@ class KnowledgeBaseService:
             return self._vector_store
 
         with self._vector_store_lock:
-
-
             # 锁内再次检查，避免并发创建多个存储实例。
             if self._vector_store is None:
-                self._vector_store = (
-                    self._vector_store_factory()
-                )
+                self._vector_store = self._vector_store_factory()
 
         return self._vector_store
 
     def _resolve_source(self, filename: str) -> Path:
         """校验并返回知识库根目录中的源文件。"""
         safe_filename = self._validate_filename(filename)
-        source_path = (
-            self._source_directory / safe_filename
-        ).resolve()
-
+        source_path = (self._source_directory / safe_filename).resolve()
 
         # 解析后的父目录必须仍是知识库根目录。
         if source_path.parent != self._source_directory:

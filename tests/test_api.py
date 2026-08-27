@@ -1,6 +1,5 @@
 """验证聊天与健康检查 API。"""
 
-
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,13 +20,9 @@ class FakeGraph:
         self.pending = pending
         self.fail = fail
 
-        self.last_input: (
-            dict[str, Any] | None
-        ) = None
+        self.last_input: dict[str, Any] | None = None
 
-        self.last_config: (
-            dict[str, Any] | None
-        ) = None
+        self.last_config: dict[str, Any] | None = None
 
         self.resume_count = 0
 
@@ -35,15 +30,9 @@ class FakeGraph:
         self,
         config: dict[str, Any],
     ) -> SimpleNamespace:
-        next_nodes = (
-            ("tools",)
-            if self.pending
-            else ()
-        )
+        next_nodes = ("tools",) if self.pending else ()
 
-        return SimpleNamespace(
-            next=next_nodes
-        )
+        return SimpleNamespace(next=next_nodes)
 
     def invoke(
         self,
@@ -56,40 +45,26 @@ class FakeGraph:
             self.pending = False
             self.resume_count += 1
 
-            return {
-                "messages": [
-                    AIMessage(
-                        content="旧任务恢复完成。"
-                    )
-                ]
-            }
+            return {"messages": [AIMessage(content="旧任务恢复完成。")]}
 
         if self.fail:
-            raise RuntimeError(
-                "不应返回给客户端的内部错误"
-            )
+            raise RuntimeError("不应返回给客户端的内部错误")
 
         self.last_input = input_data
 
         return {
             "messages": [
                 *input_data["messages"],
-                AIMessage(
-                    content="这是测试回答。"
-                ),
+                AIMessage(content="这是测试回答。"),
             ]
         }
 
 
 def test_health_check() -> None:
-    app = create_app(
-        agent_graph=FakeGraph()
-    )
+    app = create_app(agent_graph=FakeGraph())
 
     with TestClient(app) as client:
-        response = client.get(
-            "/api/v1/health"
-        )
+        response = client.get("/api/v1/health")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -101,9 +76,7 @@ def test_health_check() -> None:
 def test_chat_endpoint() -> None:
     fake_graph = FakeGraph()
 
-    app = create_app(
-        agent_graph=fake_graph
-    )
+    app = create_app(agent_graph=fake_graph)
 
     with TestClient(app) as client:
         response = client.post(
@@ -121,40 +94,21 @@ def test_chat_endpoint() -> None:
         "thread_id": "test-thread-001",
     }
 
-    assert (
-            fake_graph.last_config[
-                "configurable"
-            ]
-            == {
-                "thread_id": "test-thread-001",
-            }
-    )
+    assert fake_graph.last_config["configurable"] == {
+        "thread_id": "test-thread-001",
+    }
 
-    assert (
-            fake_graph.last_config["run_name"]
-            == "lifepilot_chat"
-    )
+    assert fake_graph.last_config["run_name"] == "lifepilot_chat"
 
-    assert (
-            fake_graph.last_config[
-                "metadata"
-            ]["thread_id"]
-            == "test-thread-001"
-    )
+    assert fake_graph.last_config["metadata"]["thread_id"] == "test-thread-001"
 
-    assert (
-        fake_graph.last_config[
-            "metadata"
-        ]["request_id"]
-    )
+    assert fake_graph.last_config["metadata"]["request_id"]
 
 
 def test_chat_strips_message() -> None:
     fake_graph = FakeGraph()
 
-    app = create_app(
-        agent_graph=fake_graph
-    )
+    app = create_app(agent_graph=fake_graph)
 
     with TestClient(app) as client:
         response = client.post(
@@ -167,18 +121,11 @@ def test_chat_strips_message() -> None:
 
     assert response.status_code == 200
 
-    assert (
-        fake_graph
-        .last_input["messages"][0]
-        .content
-        == "你好"
-    )
+    assert fake_graph.last_input["messages"][0].content == "你好"
 
 
 def test_chat_rejects_blank_message() -> None:
-    app = create_app(
-        agent_graph=FakeGraph()
-    )
+    app = create_app(agent_graph=FakeGraph())
 
     with TestClient(app) as client:
         response = client.post(
@@ -193,9 +140,7 @@ def test_chat_rejects_blank_message() -> None:
 
 
 def test_chat_rejects_invalid_thread_id() -> None:
-    app = create_app(
-        agent_graph=FakeGraph()
-    )
+    app = create_app(agent_graph=FakeGraph())
 
     with TestClient(app) as client:
         response = client.post(
@@ -210,13 +155,9 @@ def test_chat_rejects_invalid_thread_id() -> None:
 
 
 def test_pending_execution_is_resumed() -> None:
-    fake_graph = FakeGraph(
-        pending=True
-    )
+    fake_graph = FakeGraph(pending=True)
 
-    app = create_app(
-        agent_graph=fake_graph
-    )
+    app = create_app(agent_graph=fake_graph)
 
     with TestClient(app) as client:
         response = client.post(
@@ -233,11 +174,7 @@ def test_pending_execution_is_resumed() -> None:
 
 
 def test_internal_error_is_hidden() -> None:
-    app = create_app(
-        agent_graph=FakeGraph(
-            fail=True
-        )
-    )
+    app = create_app(agent_graph=FakeGraph(fail=True))
 
     with TestClient(app) as client:
         response = client.post(
@@ -250,14 +187,6 @@ def test_internal_error_is_hidden() -> None:
 
     assert response.status_code == 500
 
-    assert response.json() == {
-        "detail": (
-            "LifePilot 处理请求时"
-            "发生内部错误。"
-        )
-    }
+    assert response.json() == {"detail": ("LifePilot 处理请求时发生内部错误。")}
 
-    assert (
-        "不应返回给客户端的内部错误"
-        not in response.text
-    )
+    assert "不应返回给客户端的内部错误" not in response.text

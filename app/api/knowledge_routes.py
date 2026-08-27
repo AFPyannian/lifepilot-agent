@@ -1,6 +1,5 @@
 """提供知识库文档上传、查询和删除接口。"""
 
-
 import logging
 import os
 from pathlib import Path
@@ -29,10 +28,7 @@ from app.knowledge.loaders import (
     SUPPORTED_SUFFIXES,
 )
 
-
-logger = logging.getLogger(
-    "lifepilot.api.knowledge"
-)
+logger = logging.getLogger("lifepilot.api.knowledge")
 
 router = APIRouter()
 
@@ -73,27 +69,16 @@ async def upload_knowledge_document(
     request: Request,
     file: Annotated[
         UploadFile,
-        File(
-            description=(
-                "TXT、Markdown 或 PDF 文档"
-            )
-        ),
+        File(description=("TXT、Markdown 或 PDF 文档")),
     ],
 ) -> KnowledgeDocumentResponse:
     """校验、原子保存并索引上传的知识文档。"""
-    service, settings, graph_lock = (
-        _get_knowledge_dependencies(request)
-    )
+    service, settings, graph_lock = _get_knowledge_dependencies(request)
 
-    filename = _validate_filename(
-        file.filename
-    )
+    filename = _validate_filename(file.filename)
 
     source_path = _safe_source_path(
-        source_directory=(
-            settings
-            .knowledge_source_directory
-        ),
+        source_directory=(settings.knowledge_source_directory),
         filename=filename,
     )
 
@@ -101,10 +86,7 @@ async def upload_knowledge_document(
         await _save_upload_file(
             upload=file,
             destination=source_path,
-            max_file_bytes=(
-                settings
-                .knowledge_max_file_bytes
-            ),
+            max_file_bytes=(settings.knowledge_max_file_bytes),
         )
 
         def ingest_document() -> Any:
@@ -114,13 +96,10 @@ async def upload_knowledge_document(
                     filename=filename,
                 )
 
-        result = await run_in_threadpool(
-            ingest_document
-        )
+        result = await run_in_threadpool(ingest_document)
 
         logger.info(
-            "Knowledge document imported "
-            "filename=%s chunks=%s",
+            "Knowledge document imported filename=%s chunks=%s",
             result.source_name,
             result.chunk_count,
         )
@@ -128,16 +107,12 @@ async def upload_knowledge_document(
         return KnowledgeDocumentResponse(
             filename=result.source_name,
             chunk_count=result.chunk_count,
-            already_indexed=(
-                result.already_indexed
-            ),
+            already_indexed=(result.already_indexed),
         )
 
     except ValueError as error:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
             detail=str(error),
         ) from error
 
@@ -146,20 +121,13 @@ async def upload_knowledge_document(
 
     except Exception as error:
         logger.exception(
-            "Knowledge document upload failed "
-            "filename=%s",
+            "Knowledge document upload failed filename=%s",
             filename,
         )
 
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_500_INTERNAL_SERVER_ERROR
-            ),
-            detail=(
-                "文档导入失败，请检查文件"
-                "内容后重试。"
-            ),
+            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
+            detail=("文档导入失败，请检查文件内容后重试。"),
         ) from error
 
     finally:
@@ -175,32 +143,21 @@ async def list_knowledge_documents(
     request: Request,
 ) -> KnowledgeListResponse:
     """返回当前用户已经索引的知识文档。"""
-    service, settings, graph_lock = (
-        _get_knowledge_dependencies(request)
-    )
+    service, settings, graph_lock = _get_knowledge_dependencies(request)
 
     def list_documents() -> Any:
         """在线程池中读取知识文档列表。"""
         with graph_lock:
-            return service.list_sources(
-                settings.owner_id
-            )
+            return service.list_sources(settings.owner_id)
 
     try:
-        sources = await run_in_threadpool(
-            list_documents
-        )
+        sources = await run_in_threadpool(list_documents)
 
     except Exception as error:
-        logger.exception(
-            "Failed to list knowledge documents"
-        )
+        logger.exception("Failed to list knowledge documents")
 
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_500_INTERNAL_SERVER_ERROR
-            ),
+            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail="读取知识库文档列表失败。",
         ) from error
 
@@ -208,9 +165,7 @@ async def list_knowledge_documents(
         documents=[
             KnowledgeDocumentItem(
                 filename=source.source_name,
-                chunk_count=(
-                    source.chunk_count
-                ),
+                chunk_count=(source.chunk_count),
             )
             for source in sources
         ]
@@ -227,71 +182,48 @@ async def delete_knowledge_document(
     request: Request,
 ) -> KnowledgeDeleteResponse:
     """删除知识文档的向量记录和源文件。"""
-    service, settings, graph_lock = (
-        _get_knowledge_dependencies(request)
-    )
+    service, settings, graph_lock = _get_knowledge_dependencies(request)
 
-    safe_filename = _validate_filename(
-        filename
-    )
+    safe_filename = _validate_filename(filename)
 
     source_path = _safe_source_path(
-        source_directory=(
-            settings
-            .knowledge_source_directory
-        ),
+        source_directory=(settings.knowledge_source_directory),
         filename=safe_filename,
     )
 
     def delete_document() -> bool:
         """在应用锁内完成向量和文件删除。"""
         with graph_lock:
-            vector_deleted = (
-                service.delete_source(
-                    owner_id=settings.owner_id,
-                    filename=safe_filename,
-                )
+            vector_deleted = service.delete_source(
+                owner_id=settings.owner_id,
+                filename=safe_filename,
             )
 
             file_deleted = False
 
-            if (
-                source_path.exists()
-                and source_path.is_file()
-            ):
+            if source_path.exists() and source_path.is_file():
                 source_path.unlink()
                 file_deleted = True
 
-            return (
-                vector_deleted
-                or file_deleted
-            )
+            return vector_deleted or file_deleted
 
     try:
-        deleted = await run_in_threadpool(
-            delete_document
-        )
+        deleted = await run_in_threadpool(delete_document)
 
     except ValueError as error:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
             detail=str(error),
         ) from error
 
     except Exception as error:
         logger.exception(
-            "Knowledge document deletion failed "
-            "filename=%s",
+            "Knowledge document deletion failed filename=%s",
             safe_filename,
         )
 
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_500_INTERNAL_SERVER_ERROR
-            ),
+            status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail="删除知识库文档失败。",
         ) from error
 
@@ -323,16 +255,9 @@ def _get_knowledge_dependencies(
         None,
     )
 
-    if (
-        service is None
-        or settings is None
-        or graph_lock is None
-    ):
+    if service is None or settings is None or graph_lock is None:
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_503_SERVICE_UNAVAILABLE
-            ),
+            status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
             detail="知识库服务当前不可用。",
         )
 
@@ -345,9 +270,7 @@ def _validate_filename(
     """验证文件名长度、字符、保留名称和扩展名。"""
     if raw_filename is None:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
             detail="上传文件缺少文件名。",
         )
 
@@ -355,66 +278,39 @@ def _validate_filename(
 
     if not filename or len(filename) > 255:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
             detail="文件名无效。",
         )
 
     forbidden_characters = '<>:"/\\|?*'
 
     if any(
-        character in forbidden_characters
-        or ord(character) < 32
+        character in forbidden_characters or ord(character) < 32
         for character in filename
     ):
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
-            detail=(
-                "文件名包含不允许的字符。"
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
+            detail=("文件名包含不允许的字符。"),
         )
 
     if filename.endswith((".", " ")):
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
-            detail=(
-                "文件名不能以空格或点结尾。"
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
+            detail=("文件名不能以空格或点结尾。"),
         )
 
-    reserved_name = (
-        filename
-        .split(".", maxsplit=1)[0]
-        .upper()
-    )
+    reserved_name = filename.split(".", maxsplit=1)[0].upper()
 
     if reserved_name in WINDOWS_RESERVED_NAMES:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
-            detail=(
-                "该文件名是 Windows 保留名称。"
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
+            detail=("该文件名是 Windows 保留名称。"),
         )
 
-    if (
-        Path(filename).suffix.lower()
-        not in SUPPORTED_SUFFIXES
-    ):
+    if Path(filename).suffix.lower() not in SUPPORTED_SUFFIXES:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
-            detail=(
-                "只允许上传 TXT、Markdown "
-                "和 PDF 文件。"
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
+            detail=("只允许上传 TXT、Markdown 和 PDF 文件。"),
         )
 
     return filename
@@ -432,15 +328,11 @@ def _safe_source_path(
         exist_ok=True,
     )
 
-    source_path = (
-        root / filename
-    ).resolve()
+    source_path = (root / filename).resolve()
 
     if source_path.parent != root:
         raise HTTPException(
-            status_code=(
-                status.HTTP_400_BAD_REQUEST
-            ),
+            status_code=(status.HTTP_400_BAD_REQUEST),
             detail="文件路径不安全。",
         )
 
@@ -453,38 +345,22 @@ async def _save_upload_file(
     max_file_bytes: int,
 ) -> None:
     """分块写入临时文件，校验大小后原子替换目标文件。"""
-    temporary_path = (
-        destination.parent
-        / f".upload-{uuid4().hex}.tmp"
-    )
+    temporary_path = destination.parent / f".upload-{uuid4().hex}.tmp"
 
     total_bytes = 0
 
     try:
-        with temporary_path.open(
-            "xb"
-        ) as output_file:
-            while chunk := await upload.read(
-                UPLOAD_CHUNK_SIZE
-            ):
+        with temporary_path.open("xb") as output_file:
+            while chunk := await upload.read(UPLOAD_CHUNK_SIZE):
                 total_bytes += len(chunk)
 
-                if (
-                    total_bytes
-                    > max_file_bytes
-                ):
-                    raise ValueError(
-                        "上传文件超过允许的"
-                        "大小限制。"
-                    )
+                if total_bytes > max_file_bytes:
+                    raise ValueError("上传文件超过允许的大小限制。")
 
                 output_file.write(chunk)
 
         if total_bytes == 0:
-            raise ValueError(
-                "不能上传空文件。"
-            )
-
+            raise ValueError("不能上传空文件。")
 
         # 原子替换确保目标文件始终处于完整状态。
         os.replace(
@@ -493,6 +369,4 @@ async def _save_upload_file(
         )
 
     finally:
-        temporary_path.unlink(
-            missing_ok=True
-        )
+        temporary_path.unlink(missing_ok=True)

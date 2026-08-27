@@ -1,10 +1,9 @@
 """使用 SQLite 持久化用户笔记。"""
 
-
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -39,19 +38,16 @@ class NoteRepository:
 
     def _connect(self) -> sqlite3.Connection:
         """打开启用行对象访问的 SQLite 连接。"""
-        connection = sqlite3.connect(
-            self._database_path
-        )
+        connection = sqlite3.connect(self._database_path)
         connection.row_factory = sqlite3.Row
 
         return connection
 
     def _initialize_database(self) -> None:
         """创建笔记表和查询索引。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     CREATE TABLE IF NOT EXISTS notes (
                         id INTEGER PRIMARY KEY,
                         owner_id TEXT NOT NULL,
@@ -61,15 +57,15 @@ class NoteRepository:
                         updated_at TEXT NOT NULL
                     )
                     """
-                )
+            )
 
-                connection.execute(
-                    """
+            connection.execute(
+                """
                     CREATE INDEX IF NOT EXISTS
                         idx_notes_owner_id
                     ON notes (owner_id)
                     """
-                )
+            )
 
     def add(
         self,
@@ -82,23 +78,16 @@ class NoteRepository:
         normalized_content = content.strip()
 
         if not normalized_title:
-            raise ValueError(
-                "Note title cannot be empty."
-            )
+            raise ValueError("Note title cannot be empty.")
 
         if not normalized_content:
-            raise ValueError(
-                "Note content cannot be empty."
-            )
+            raise ValueError("Note content cannot be empty.")
 
-        timestamp = datetime.now(
-            timezone.utc
-        ).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
-        with closing(self._connect()) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     INSERT INTO notes (
                         owner_id,
                         title,
@@ -108,21 +97,19 @@ class NoteRepository:
                     )
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (
-                        owner_id,
-                        normalized_title,
-                        normalized_content,
-                        timestamp,
-                        timestamp,
-                    ),
-                )
+                (
+                    owner_id,
+                    normalized_title,
+                    normalized_content,
+                    timestamp,
+                    timestamp,
+                ),
+            )
 
-                note_id = cursor.lastrowid
+            note_id = cursor.lastrowid
 
         if note_id is None:
-            raise RuntimeError(
-                "Failed to obtain the new note ID."
-            )
+            raise RuntimeError("Failed to obtain the new note ID.")
 
         return NoteItem(
             id=note_id,
@@ -155,10 +142,7 @@ class NoteRepository:
                 (owner_id,),
             ).fetchall()
 
-        return [
-            self._row_to_item(row)
-            for row in rows
-        ]
+        return [self._row_to_item(row) for row in rows]
 
     def get_by_id(
         self,
@@ -229,10 +213,7 @@ class NoteRepository:
                 ),
             ).fetchall()
 
-        return [
-            self._row_to_item(row)
-            for row in rows
-        ]
+        return [self._row_to_item(row) for row in rows]
 
     def update(
         self,
@@ -256,9 +237,7 @@ class NoteRepository:
             updated_title = title.strip()
 
             if not updated_title:
-                raise ValueError(
-                    "Note title cannot be empty."
-                )
+                raise ValueError("Note title cannot be empty.")
 
         if content is None:
             updated_content = existing.content
@@ -266,18 +245,13 @@ class NoteRepository:
             updated_content = content.strip()
 
             if not updated_content:
-                raise ValueError(
-                    "Note content cannot be empty."
-                )
+                raise ValueError("Note content cannot be empty.")
 
-        updated_at = datetime.now(
-            timezone.utc
-        ).isoformat()
+        updated_at = datetime.now(UTC).isoformat()
 
-        with closing(self._connect()) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     UPDATE notes
                     SET
                         title = ?,
@@ -286,14 +260,14 @@ class NoteRepository:
                     WHERE id = ?
                       AND owner_id = ?
                     """,
-                    (
-                        updated_title,
-                        updated_content,
-                        updated_at,
-                        note_id,
-                        owner_id,
-                    ),
-                )
+                (
+                    updated_title,
+                    updated_content,
+                    updated_at,
+                    note_id,
+                    owner_id,
+                ),
+            )
 
         return NoteItem(
             id=existing.id,
@@ -310,21 +284,20 @@ class NoteRepository:
         note_id: int,
     ) -> bool:
         """删除指定用户的一条笔记。"""
-        with closing(self._connect()) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     DELETE FROM notes
                     WHERE id = ?
                       AND owner_id = ?
                     """,
-                    (
-                        note_id,
-                        owner_id,
-                    ),
-                )
+                (
+                    note_id,
+                    owner_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     @staticmethod
     def _row_to_item(

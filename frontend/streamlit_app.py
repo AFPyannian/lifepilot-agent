@@ -1,6 +1,5 @@
 """构建 LifePilot Streamlit 交互界面。"""
 
-
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -14,19 +13,11 @@ from app.clients import (
     LifePilotApiError,
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-PROJECT_ROOT = (
-    Path(__file__).resolve().parent.parent
-)
+load_dotenv(PROJECT_ROOT / ".env")
 
-load_dotenv(
-    PROJECT_ROOT / ".env"
-)
-
-API_BASE_URL = (
-    os.getenv("LIFEPILOT_API_URL")
-    or "http://127.0.0.1:8000"
-).rstrip("/")
+API_BASE_URL = (os.getenv("LIFEPILOT_API_URL") or "http://127.0.0.1:8000").rstrip("/")
 
 
 st.set_page_config(
@@ -46,20 +37,13 @@ def initialize_session_state() -> None:
     """初始化当前浏览器会话所需的状态。"""
 
     if "thread_id" not in st.session_state:
-        st.session_state.thread_id = (
-            create_thread_id()
-        )
+        st.session_state.thread_id = create_thread_id()
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    if (
-            "pending_approval"
-            not in st.session_state
-    ):
-        st.session_state.pending_approval = (
-            None
-        )
+    if "pending_approval" not in st.session_state:
+        st.session_state.pending_approval = None
 
 
 @st.cache_data(
@@ -71,22 +55,16 @@ def check_backend_health(
 ) -> bool:
     """缓存并返回后端健康状态。"""
 
-    client = LifePilotApiClient(
-        base_url=base_url
-    )
+    client = LifePilotApiClient(base_url=base_url)
 
     return client.is_healthy()
 
 
 initialize_session_state()
 
-client = LifePilotApiClient(
-    base_url=API_BASE_URL
-)
+client = LifePilotApiClient(base_url=API_BASE_URL)
 
-backend_available = check_backend_health(
-    API_BASE_URL
-)
+backend_available = check_backend_health(API_BASE_URL)
 
 
 with st.sidebar:
@@ -115,14 +93,11 @@ with st.sidebar:
         "开始新对话",
         use_container_width=True,
     ):
-        st.session_state.thread_id = (
-            create_thread_id()
-        )
+        st.session_state.thread_id = create_thread_id()
 
         st.session_state.messages = []
 
         st.session_state.pending_approval = None
-
 
         check_backend_health.clear()
         st.rerun()
@@ -141,82 +116,51 @@ with st.sidebar:
 
     if backend_available:
         try:
-            conversations = (
-                client.list_conversations()
-            )
+            conversations = client.list_conversations()
 
         except LifePilotApiError as error:
             st.warning(str(error))
 
     if conversations:
-        conversation_ids = [
-            conversation["thread_id"]
-            for conversation in conversations
-        ]
+        conversation_ids = [conversation["thread_id"] for conversation in conversations]
 
         title_by_id = {
-            conversation["thread_id"]: (
-                conversation["title"]
-            )
-            for conversation
-            in conversations
+            conversation["thread_id"]: (conversation["title"])
+            for conversation in conversations
         }
 
-        current_thread_id = (
-            st.session_state.thread_id
-        )
+        current_thread_id = st.session_state.thread_id
 
         default_index = 0
 
-        if (
-                current_thread_id
-                in conversation_ids
-        ):
-            default_index = (
-                conversation_ids.index(
-                    current_thread_id
-                )
-            )
+        if current_thread_id in conversation_ids:
+            default_index = conversation_ids.index(current_thread_id)
 
         selected_thread_id = st.selectbox(
             "选择会话",
             options=conversation_ids,
             index=default_index,
-            format_func=lambda thread_id: (
-                title_by_id.get(
-                    thread_id,
-                    thread_id,
-                )
+            format_func=lambda thread_id: title_by_id.get(
+                thread_id,
+                thread_id,
             ),
         )
 
         if st.button(
-                "加载会话",
-                use_container_width=True,
+            "加载会话",
+            use_container_width=True,
         ):
             try:
-                detail = (
-                    client.get_conversation(
-                        selected_thread_id
-                    )
+                detail = client.get_conversation(selected_thread_id)
+
+                st.session_state.thread_id = detail["thread_id"]
+
+                st.session_state.messages = detail.get(
+                    "messages",
+                    [],
                 )
 
-                st.session_state.thread_id = (
-                    detail["thread_id"]
-                )
-
-                st.session_state.messages = (
-                    detail.get(
-                        "messages",
-                        [],
-                    )
-                )
-
-                st.session_state.pending_approval = (
-                    detail.get(
-                        "pending_approval"
-                    )
-                )
+                st.session_state.pending_approval = detail.get("pending_approval")
 
                 st.rerun()
 
@@ -230,91 +174,60 @@ with st.sidebar:
                 "",
             ),
             max_chars=80,
-            key=(
-                "conversation-title-"
-                f"{selected_thread_id}"
-            ),
+            key=(f"conversation-title-{selected_thread_id}"),
         )
 
         if st.button(
-                "保存新标题",
-                use_container_width=True,
-                disabled=not new_title.strip(),
+            "保存新标题",
+            use_container_width=True,
+            disabled=not new_title.strip(),
         ):
             try:
                 client.rename_conversation(
-                    thread_id=(
-                        selected_thread_id
-                    ),
+                    thread_id=(selected_thread_id),
                     title=new_title,
                 )
 
-                st.success(
-                    "会话标题已更新。"
-                )
+                st.success("会话标题已更新。")
 
                 st.rerun()
 
             except LifePilotApiError as error:
                 st.error(str(error))
 
-        confirm_conversation_delete = (
-            st.checkbox(
-                "我确认删除选中的整个会话",
-                key=(
-                    "confirm-conversation-delete-"
-                    f"{selected_thread_id}"
-                ),
-            )
+        confirm_conversation_delete = st.checkbox(
+            "我确认删除选中的整个会话",
+            key=(f"confirm-conversation-delete-{selected_thread_id}"),
         )
 
         if st.button(
-                "删除会话",
-                use_container_width=True,
-                disabled=(
-                        not confirm_conversation_delete
-                ),
+            "删除会话",
+            use_container_width=True,
+            disabled=(not confirm_conversation_delete),
         ):
             try:
-                deleted = (
-                    client.delete_conversation(
-                        selected_thread_id
-                    )
-                )
+                deleted = client.delete_conversation(selected_thread_id)
 
                 if deleted:
-                    if (
-                            st.session_state.thread_id
-                            == selected_thread_id
-                    ):
-                        st.session_state.thread_id = (
-                            create_thread_id()
-                        )
+                    if st.session_state.thread_id == selected_thread_id:
+                        st.session_state.thread_id = create_thread_id()
 
                         st.session_state.messages = []
 
-                        st.session_state.pending_approval = (
-                            None
-                        )
+                        st.session_state.pending_approval = None
 
-                    st.success(
-                        "会话已经删除。"
-                    )
+                    st.success("会话已经删除。")
 
                     st.rerun()
 
                 else:
-                    st.info(
-                        "会话已经不存在。"
-                    )
+                    st.info("会话已经不存在。")
 
             except LifePilotApiError as error:
                 st.error(str(error))
 
     else:
-        st.caption(
-            "还没有历史会话"
-        )
+        st.caption("还没有历史会话")
 
     st.divider()
     st.subheader("个人知识库")
@@ -328,42 +241,20 @@ with st.sidebar:
     )
 
     if st.button(
-            "导入知识库",
-            use_container_width=True,
-            disabled=(
-                    not backend_available
-                    or uploaded_file is None
-            ),
+        "导入知识库",
+        use_container_width=True,
+        disabled=(not backend_available or uploaded_file is None),
     ):
         try:
-            with st.spinner(
-                    "正在解析和向量化文档……"
-            ):
-                result = (
-                    client.upload_document(
-                        filename=(
-                            uploaded_file.name
-                        ),
-                        content=(
-                            uploaded_file
-                            .getvalue()
-                        ),
-                        content_type=(
-                                uploaded_file.type
-                                or (
-                                    "application/"
-                                    "octet-stream"
-                                )
-                        ),
-                    )
+            with st.spinner("正在解析和向量化文档……"):
+                result = client.upload_document(
+                    filename=(uploaded_file.name),
+                    content=(uploaded_file.getvalue()),
+                    content_type=(uploaded_file.type or ("application/octet-stream")),
                 )
 
             if result["already_indexed"]:
-                st.info(
-                    f"{result['filename']} "
-                    "已经导入，不需要重复"
-                    "向量化。"
-                )
+                st.info(f"{result['filename']} 已经导入，不需要重复向量化。")
             else:
                 st.success(
                     f"已导入 "
@@ -380,72 +271,45 @@ with st.sidebar:
 
     if backend_available:
         try:
-            documents = (
-                client.list_documents()
-            )
+            documents = client.list_documents()
 
         except LifePilotApiError as error:
             st.warning(str(error))
 
     if documents:
-        st.caption(
-            f"当前共有 {len(documents)} "
-            "个知识文档"
-        )
+        st.caption(f"当前共有 {len(documents)} 个知识文档")
 
         for document in documents:
-            st.write(
-                f"📄 {document['filename']} "
-                f"({document['chunk_count']} 块)"
-            )
+            st.write(f"📄 {document['filename']} ({document['chunk_count']} 块)")
 
         selected_filename = st.selectbox(
             "选择需要删除的文档",
-            options=[
-                document["filename"]
-                for document in documents
-            ],
+            options=[document["filename"] for document in documents],
         )
 
-        confirm_delete = st.checkbox(
-            "我确认删除该文档"
-        )
+        confirm_delete = st.checkbox("我确认删除该文档")
 
         if st.button(
-                "删除选中文档",
-                use_container_width=True,
-                disabled=not confirm_delete,
+            "删除选中文档",
+            use_container_width=True,
+            disabled=not confirm_delete,
         ):
             try:
-                deleted = (
-                    client.delete_document(
-                        selected_filename
-                    )
-                )
+                deleted = client.delete_document(selected_filename)
 
                 if deleted:
-                    st.success(
-                        "已删除："
-                        f"{selected_filename}"
-                    )
+                    st.success(f"已删除：{selected_filename}")
                     st.rerun()
                 else:
-                    st.info(
-                        "该文档已经不存在。"
-                    )
+                    st.info("该文档已经不存在。")
 
             except LifePilotApiError as error:
                 st.error(str(error))
 
     else:
-        st.caption(
-            "知识库中还没有文档"
-        )
+        st.caption("知识库中还没有文档")
 
-    st.caption(
-        "LifePilot 使用 LangGraph、"
-        "DeepSeek、FastAPI 和 Streamlit 构建。"
-    )
+    st.caption("LifePilot 使用 LangGraph、DeepSeek、FastAPI 和 Streamlit 构建。")
 
 
 st.title("🧭 LifePilot")
@@ -454,32 +318,22 @@ st.caption("你的个人智能助理")
 
 if not st.session_state.messages:
     st.info(
-        "你可以让我管理待办、记录笔记、"
-        "保存长期记忆、查询个人知识库，"
-        "或者进行普通对话。"
+        "你可以让我管理待办、记录笔记、保存长期记忆、查询个人知识库，或者进行普通对话。"
     )
 
 
 for message in st.session_state.messages:
-    with st.chat_message(
-        message["role"]
-    ):
-        st.markdown(
-            message["content"]
-        )
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
 
-pending_approval = (
-    st.session_state.pending_approval
-)
+pending_approval = st.session_state.pending_approval
 
 if pending_approval is not None:
     st.warning(
         pending_approval.get(
             "message",
-            (
-                "LifePilot 请求执行一项敏感操作。"
-            ),
+            ("LifePilot 请求执行一项敏感操作。"),
         )
     )
 
@@ -488,13 +342,9 @@ if pending_approval is not None:
         "未知工具",
     )
 
-    st.write(
-        f"工具名称：`{tool_name}`"
-    )
+    st.write(f"工具名称：`{tool_name}`")
 
-    with st.expander(
-        "查看操作参数"
-    ):
+    with st.expander("查看操作参数"):
         st.json(
             pending_approval.get(
                 "arguments",
@@ -502,9 +352,7 @@ if pending_approval is not None:
             )
         )
 
-    approve_column, reject_column = (
-        st.columns(2)
-    )
+    approve_column, reject_column = st.columns(2)
 
     with approve_column:
         approve_clicked = st.button(
@@ -523,14 +371,9 @@ if pending_approval is not None:
         approved = approve_clicked
 
         try:
-            with st.spinner(
-                "正在恢复 Agent 执行……"
-            ):
+            with st.spinner("正在恢复 Agent 执行……"):
                 reply = client.resume_chat(
-                    thread_id=(
-                        st.session_state
-                        .thread_id
-                    ),
+                    thread_id=(st.session_state.thread_id),
                     approved=approved,
                 )
 
@@ -541,23 +384,17 @@ if pending_approval is not None:
                 }
             )
 
-            st.session_state.pending_approval = (
-                None
-            )
+            st.session_state.pending_approval = None
 
             st.rerun()
 
         except ApprovalRequired as error:
-
-            st.session_state.pending_approval = (
-                error.request
-            )
+            st.session_state.pending_approval = error.request
 
             st.rerun()
 
         except LifePilotApiError as error:
             st.error(str(error))
-
 
     st.stop()
 
@@ -575,9 +412,7 @@ if prompt:
         "content": prompt,
     }
 
-    st.session_state.messages.append(
-        user_message
-    )
+    st.session_state.messages.append(user_message)
 
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -588,49 +423,36 @@ if prompt:
         """收集流式回答并同步更新页面消息。"""
         for token in client.stream_chat(
             message=prompt,
-            thread_id=(
-                st.session_state.thread_id
-            ),
+            thread_id=(st.session_state.thread_id),
         ):
             received_chunks.append(token)
             yield token
 
     with st.chat_message("assistant"):
         try:
-            complete_response = (
-                st.write_stream(
-                    collect_response(),
-                    cursor="▌",
-                )
+            complete_response = st.write_stream(
+                collect_response(),
+                cursor="▌",
             )
-
 
             if not isinstance(
                 complete_response,
                 str,
             ):
-                complete_response = "".join(
-                    received_chunks
-                )
+                complete_response = "".join(received_chunks)
 
             if not complete_response.strip():
-                raise LifePilotApiError(
-                    "后端完成了请求，但没有返回可显示的文本。"
-                )
+                raise LifePilotApiError("后端完成了请求，但没有返回可显示的文本。")
 
             assistant_message = {
                 "role": "assistant",
                 "content": complete_response,
             }
 
-            st.session_state.messages.append(
-                assistant_message
-            )
+            st.session_state.messages.append(assistant_message)
 
         except ApprovalRequired as error:
-            partial_response = "".join(
-                received_chunks
-            )
+            partial_response = "".join(received_chunks)
 
             if partial_response:
                 st.session_state.messages.append(
@@ -640,30 +462,22 @@ if prompt:
                     }
                 )
 
-            st.session_state.pending_approval = (
-                error.request
-            )
+            st.session_state.pending_approval = error.request
 
             st.rerun()
 
         except LifePilotApiError as error:
-            partial_response = "".join(
-                received_chunks
-            )
+            partial_response = "".join(received_chunks)
 
             if partial_response:
                 incomplete_message = (
-                    partial_response
-                    + "\n\n"
-                    + "> 回答因连接或后端异常而中断。"
+                    partial_response + "\n\n" + "> 回答因连接或后端异常而中断。"
                 )
 
                 st.session_state.messages.append(
                     {
                         "role": "assistant",
-                        "content": (
-                            incomplete_message
-                        ),
+                        "content": (incomplete_message),
                     }
                 )
 

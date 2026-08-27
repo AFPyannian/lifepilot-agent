@@ -1,7 +1,8 @@
 """提供 LifePilot 命令行交互入口。"""
 
-
 import logging
+from typing import Any
+
 from langchain_core.messages import HumanMessage, ToolMessage
 
 from app.checkpointing import open_sqlite_checkpointer
@@ -11,13 +12,14 @@ from app.graph import build_graph
 from app.logging_config import configure_logging, shutdown_logging
 from app.observability import configure_observability
 
-
 logger = logging.getLogger("lifepilot.main")
 
 
-def display_graph_result(result: dict, thread_id: str) -> None:
+def display_graph_result(
+    result: dict[str, Any],
+    thread_id: str,
+) -> None:
     """显示最新模型回答并记录本轮工具调用数量。"""
-
 
     messages = result.get("messages", [])
     if not messages:
@@ -25,16 +27,10 @@ def display_graph_result(result: dict, thread_id: str) -> None:
         return
     final_message = messages[-1]
 
-
     print("\nLifePilot：")
     print(final_message.content)
 
-
-    tool_message_count = sum(
-        isinstance(message, ToolMessage)
-        for message in messages
-    )
-
+    tool_message_count = sum(isinstance(message, ToolMessage) for message in messages)
 
     logger.info(
         "Agent turn completed thread_id=%s messages=%d tools=%d",
@@ -45,8 +41,8 @@ def display_graph_result(result: dict, thread_id: str) -> None:
 
 
 def has_pending_execution(
-    graph,
-    config: dict,
+    graph: Any,
+    config: dict[str, Any],
 ) -> bool:
     """判断指定会话是否仍有待执行的 LangGraph 节点。"""
     try:
@@ -57,34 +53,27 @@ def has_pending_execution(
     except Exception:
         logger.exception("Failed to inspect pending graph state.")
 
-
         return True
 
 
 def resume_pending_execution(
-    graph,
-    config: dict,
+    graph: Any,
+    config: dict[str, Any],
     thread_id: str,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """从 Checkpoint 恢复当前会话的未完成执行。"""
-    snapshot = graph.get_state(
-        config
-    )
+    snapshot = graph.get_state(config)
 
     if not snapshot.next:
         return None
 
     logger.warning(
-        "Pending graph execution detected "
-        "thread_id=%s next_nodes=%s",
+        "Pending graph execution detected thread_id=%s next_nodes=%s",
         thread_id,
         snapshot.next,
     )
 
-    print(
-        "\n检测到这个会话上一次没有执行完成，"
-        "正在从保存点继续……"
-    )
+    print("\n检测到这个会话上一次没有执行完成，正在从保存点继续……")
 
     return graph.invoke(
         None,
@@ -92,9 +81,11 @@ def resume_pending_execution(
     )
 
 
-def run_chat(graph, thread_id: str) -> None:
+def run_chat(
+    graph: Any,
+    thread_id: str,
+) -> None:
     """运行支持中断恢复的命令行多轮会话。"""
-
 
     config = {
         "configurable": {
@@ -102,22 +93,20 @@ def run_chat(graph, thread_id: str) -> None:
         }
     }
 
-    print(f"\nLifePilot 已启动，输入 exit、quit 或 退出，可以结束程序。当前会话ID：{thread_id}")
-
+    print(
+        f"\nLifePilot 已启动，输入 exit、quit 或 退出，可以结束程序。当前会话ID：{thread_id}"
+    )
 
     logger.info(
         "Conversation started thread_id=%s",
         thread_id,
     )
 
-
     try:
-        recovered_result = (
-            resume_pending_execution(
-                graph=graph,
-                config=config,
-                thread_id=thread_id,
-            )
+        recovered_result = resume_pending_execution(
+            graph=graph,
+            config=config,
+            thread_id=thread_id,
         )
 
         if recovered_result is not None:
@@ -127,14 +116,11 @@ def run_chat(graph, thread_id: str) -> None:
             )
     except LifePilotError as error:
         logger.exception(
-            "Pending graph recovery failed "
-            "thread_id=%s",
+            "Pending graph recovery failed thread_id=%s",
             thread_id,
         )
 
-        print(
-            f"\nLifePilot：{error.user_message}"
-        )
+        print(f"\nLifePilot：{error.user_message}")
 
         print(
             "\n当前会话仍保留在未完成状态。"
@@ -142,30 +128,20 @@ def run_chat(graph, thread_id: str) -> None:
             "然后重新启动并继续使用同一个会话ID。"
         )
 
-
         return
     except Exception:
         logger.exception(
-            "Unexpected pending graph "
-            "recovery failure thread_id=%s",
+            "Unexpected pending graph recovery failure thread_id=%s",
             thread_id,
         )
 
-        print(
-            "\nLifePilot：恢复上一次执行时"
-            "发生了未预期错误。"
-        )
+        print("\nLifePilot：恢复上一次执行时发生了未预期错误。")
 
-        print(
-            "为避免损坏会话历史，"
-            "当前会话暂不接受新消息。"
-        )
+        print("为避免损坏会话历史，当前会话暂不接受新消息。")
 
         return
 
-
     while True:
-
         user_input = input("\n你：").strip()
 
         if user_input.lower() in {"exit", "quit", "退出"}:
@@ -184,19 +160,16 @@ def run_chat(graph, thread_id: str) -> None:
         print("\nLifePilot 正在思考……")
 
         try:
-
             result = graph.invoke(
                 {
                     "messages": [
                         HumanMessage(content=user_input),
                     ],
                 },
-
                 config=config,
             )
 
         except LifePilotError as error:
-
             logger.exception(
                 "Expected application error thread_id=%s",
                 thread_id,
@@ -205,13 +178,10 @@ def run_chat(graph, thread_id: str) -> None:
             print(f"\nLifePilot：{error.user_message}")
 
             if has_pending_execution(
-                    graph,
-                    config,
+                graph,
+                config,
             ):
-                print(
-                    "\n本轮工作流尚未完成，"
-                    "执行状态已经保存在checkpoint中。"
-                )
+                print("\n本轮工作流尚未完成，执行状态已经保存在checkpoint中。")
 
                 print(
                     "程序将暂停接收新消息。"
@@ -220,9 +190,7 @@ def run_chat(graph, thread_id: str) -> None:
                     "程序会自动继续。"
                 )
 
-
                 return
-
 
             continue
 
@@ -231,18 +199,14 @@ def run_chat(graph, thread_id: str) -> None:
                 "Unexpected Agent error thread_id=%s",
                 thread_id,
             )
-            print(
-                "\nLifePilot：发生了未预期的错误，请稍后重试。"
-            )
+            print("\nLifePilot：发生了未预期的错误，请稍后重试。")
 
             if has_pending_execution(
-                    graph,
-                    config,
+                graph,
+                config,
             ):
                 print(
-                    "当前工作流仍未完成。"
-                    "为避免破坏工具消息顺序，"
-                    "程序将暂停当前会话。"
+                    "当前工作流仍未完成。为避免破坏工具消息顺序，程序将暂停当前会话。"
                 )
 
                 return
@@ -270,7 +234,6 @@ def main() -> None:
 
     configure_observability(settings)
 
-
     logger.info(
         "Application starting model=%s owner_id=%s",
         settings.deepseek_model,
@@ -278,7 +241,6 @@ def main() -> None:
     )
 
     try:
-
         thread_id = input(
             f"请输入会话ID（直接回车默认使用 {settings.default_thread_id} 会话）："
         ).strip()
@@ -286,11 +248,9 @@ def main() -> None:
         if not thread_id:
             thread_id = settings.default_thread_id
 
-
         with open_sqlite_checkpointer(
-                settings.checkpoint_database_path
+            settings.checkpoint_database_path
         ) as checkpointer:
-
             graph = build_graph(
                 settings=settings,
                 checkpointer=checkpointer,
@@ -317,6 +277,7 @@ def main() -> None:
     finally:
         logger.info("Application stopped.")
         shutdown_logging()
+
 
 if __name__ == "__main__":
     main()

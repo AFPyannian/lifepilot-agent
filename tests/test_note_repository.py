@@ -1,15 +1,12 @@
 """验证笔记仓储的增删改查。"""
 
-
 from app.repositories.note_repository import (
     NoteRepository,
 )
 
 
 def create_repository(tmp_path):
-    return NoteRepository(
-        tmp_path / "application.db"
-    )
+    return NoteRepository(tmp_path / "application.db")
 
 
 def test_add_and_get_note(tmp_path):
@@ -114,20 +111,10 @@ def test_notes_are_isolated_by_owner(
         content="用户二的私有笔记。",
     )
 
-    user_one_notes = repository.list_all(
-        "user-1"
-    )
-    user_two_notes = repository.list_all(
-        "user-2"
-    )
+    user_one_notes = repository.list_all("user-1")
+    user_two_notes = repository.list_all("user-2")
 
     assert len(user_one_notes) == 1
     assert len(user_two_notes) == 1
-    assert (
-        user_one_notes[0].title
-        == "用户一"
-    )
-    assert (
-        user_two_notes[0].title
-        == "用户二"
-    )
+    assert user_one_notes[0].title == "用户一"
+    assert user_two_notes[0].title == "用户二"

@@ -1,6 +1,5 @@
 """解析并规范化 LangGraph 人工审批中断。"""
 
-
 from typing import Any
 
 
@@ -21,7 +20,6 @@ def extract_invoke_interrupt(
 ) -> Any | None:
     """从图调用结果中提取本轮产生的中断。"""
 
-
     output_interrupts = getattr(
         result,
         "interrupts",
@@ -29,10 +27,7 @@ def extract_invoke_interrupt(
     )
 
     if output_interrupts:
-        return get_interrupt_value(
-            output_interrupts[0]
-        )
-
+        return get_interrupt_value(output_interrupts[0])
 
     if isinstance(result, dict):
         interrupts = result.get(
@@ -41,9 +36,7 @@ def extract_invoke_interrupt(
         )
 
         if interrupts:
-            return get_interrupt_value(
-                interrupts[0]
-            )
+            return get_interrupt_value(interrupts[0])
 
     return None
 
@@ -54,9 +47,7 @@ def find_pending_interrupt(
 ) -> Any | None:
     """从已保存的图状态中查找尚未处理的中断。"""
 
-    snapshot = graph.get_state(
-        config
-    )
+    snapshot = graph.get_state(config)
 
     for task in getattr(
         snapshot,
@@ -70,9 +61,7 @@ def find_pending_interrupt(
         )
 
         if task_interrupts:
-            return get_interrupt_value(
-                task_interrupts[0]
-            )
+            return get_interrupt_value(task_interrupts[0])
 
     return None
 

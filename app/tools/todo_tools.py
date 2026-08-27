@@ -1,6 +1,5 @@
 """创建供 Agent 管理用户待办事项的工具。"""
 
-
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
@@ -23,11 +22,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
         except ValueError:
             return "待办内容不能为空。"
 
-        return (
-            f"已添加待办，ID={todo.id}，"
-            f"内容：{todo.task}"
-        )
-
+        return f"已添加待办，ID={todo.id}，内容：{todo.task}"
 
     @tool
     def list_todos() -> str:
@@ -40,17 +35,9 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
         lines: list[str] = []
 
         for todo in todos:
-            status = (
-                "已完成"
-                if todo.is_completed
-                else "未完成"
-            )
+            status = "已完成" if todo.is_completed else "未完成"
 
-            lines.append(
-                f"ID={todo.id} | "
-                f"{status} | "
-                f"{todo.task}"
-            )
+            lines.append(f"ID={todo.id} | {status} | {todo.task}")
 
         return "\n".join(lines)
 
@@ -63,15 +50,9 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
         )
 
         if not was_updated:
-            return (
-                f"未找到 ID={todo_id} 的待办，"
-                "或该待办不属于当前用户。"
-            )
+            return f"未找到 ID={todo_id} 的待办，或该待办不属于当前用户。"
 
-        return (
-            f"已将 ID={todo_id} 的待办"
-            "标记为完成。"
-        )
+        return f"已将 ID={todo_id} 的待办标记为完成。"
 
     @tool
     def delete_todo(todo_id: int) -> str:
@@ -80,23 +61,15 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
             {
                 "kind": "tool_approval",
                 "tool_name": "delete_todo",
-                "message": (
-                    "是否确认删除这个待办事项？"
-                ),
+                "message": ("是否确认删除这个待办事项？"),
                 "arguments": {
                     "todo_id": todo_id,
                 },
             }
         )
 
-        if (
-                not isinstance(decision, dict)
-                or decision.get("approved")
-                is not True
-        ):
-            return (
-                "用户拒绝删除该待办事项，操作已取消。"
-            )
+        if not isinstance(decision, dict) or decision.get("approved") is not True:
+            return "用户拒绝删除该待办事项，操作已取消。"
 
         was_deleted = repository.delete(
             owner_id=owner_id,
@@ -104,9 +77,7 @@ def create_todo_tools(repository: TodoRepository, owner_id: str) -> list[BaseToo
         )
 
         if not was_deleted:
-            return (
-                f"未找到 ID={todo_id} 的待办，或该待办不属于当前用户。"
-            )
+            return f"未找到 ID={todo_id} 的待办，或该待办不属于当前用户。"
 
         return f"已删除 ID={todo_id} 的待办。"
 

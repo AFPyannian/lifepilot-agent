@@ -1,10 +1,9 @@
 """持久化会话元数据。"""
 
-
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -27,9 +26,7 @@ class ConversationRepository:
         database_path: str | Path,
     ) -> None:
         """保存数据库路径并初始化会话表。"""
-        self._database_path = Path(
-            database_path
-        )
+        self._database_path = Path(database_path)
 
         self._database_path.parent.mkdir(
             parents=True,
@@ -46,20 +43,13 @@ class ConversationRepository:
     ) -> None:
         """根据首条消息创建会话，或刷新已有会话。"""
 
-        timestamp = datetime.now(
-            timezone.utc
-        ).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
-        title = self._build_title(
-            first_message
-        )
+        title = self._build_title(first_message)
 
-        with closing(
-            self._connect()
-        ) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     INSERT INTO conversations (
                         owner_id,
                         thread_id,
@@ -76,14 +66,14 @@ class ConversationRepository:
                         updated_at =
                             excluded.updated_at
                     """,
-                    (
-                        owner_id,
-                        thread_id,
-                        title,
-                        timestamp,
-                        timestamp,
-                    ),
-                )
+                (
+                    owner_id,
+                    thread_id,
+                    title,
+                    timestamp,
+                    timestamp,
+                ),
+            )
 
     def touch(
         self,
@@ -92,29 +82,24 @@ class ConversationRepository:
     ) -> bool:
         """刷新会话最后活动时间。"""
 
-        timestamp = datetime.now(
-            timezone.utc
-        ).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
-        with closing(
-            self._connect()
-        ) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     UPDATE conversations
                     SET updated_at = ?
                     WHERE owner_id = ?
                       AND thread_id = ?
                     """,
-                    (
-                        timestamp,
-                        owner_id,
-                        thread_id,
-                    ),
-                )
+                (
+                    timestamp,
+                    owner_id,
+                    thread_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     def list_conversations(
         self,
@@ -124,13 +109,9 @@ class ConversationRepository:
         """按最近活动时间返回指定用户的会话。"""
 
         if limit <= 0:
-            raise ValueError(
-                "会话列表数量必须大于0"
-            )
+            raise ValueError("会话列表数量必须大于0")
 
-        with closing(
-            self._connect()
-        ) as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT
@@ -152,12 +133,7 @@ class ConversationRepository:
                 ),
             ).fetchall()
 
-        return [
-            self._row_to_conversation(
-                row
-            )
-            for row in rows
-        ]
+        return [self._row_to_conversation(row) for row in rows]
 
     def get(
         self,
@@ -166,9 +142,7 @@ class ConversationRepository:
     ) -> Conversation | None:
         """读取指定用户拥有的一段会话。"""
 
-        with closing(
-            self._connect()
-        ) as connection:
+        with closing(self._connect()) as connection:
             row = connection.execute(
                 """
                 SELECT
@@ -190,9 +164,7 @@ class ConversationRepository:
         if row is None:
             return None
 
-        return self._row_to_conversation(
-            row
-        )
+        return self._row_to_conversation(row)
 
     def rename(
         self,
@@ -202,30 +174,19 @@ class ConversationRepository:
     ) -> bool:
         """修改指定用户拥有的会话标题。"""
 
-        clean_title = " ".join(
-            title.split()
-        )
+        clean_title = " ".join(title.split())
 
         if not clean_title:
-            raise ValueError(
-                "会话标题不能为空"
-            )
+            raise ValueError("会话标题不能为空")
 
         if len(clean_title) > 80:
-            raise ValueError(
-                "会话标题不能超过80个字符"
-            )
+            raise ValueError("会话标题不能超过80个字符")
 
-        timestamp = datetime.now(
-            timezone.utc
-        ).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
 
-        with closing(
-            self._connect()
-        ) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     UPDATE conversations
                     SET
                         title = ?,
@@ -233,15 +194,15 @@ class ConversationRepository:
                     WHERE owner_id = ?
                       AND thread_id = ?
                     """,
-                    (
-                        clean_title,
-                        timestamp,
-                        owner_id,
-                        thread_id,
-                    ),
-                )
+                (
+                    clean_title,
+                    timestamp,
+                    owner_id,
+                    thread_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     def delete(
         self,
@@ -250,35 +211,28 @@ class ConversationRepository:
     ) -> bool:
         """删除指定用户拥有的会话元数据。"""
 
-        with closing(
-            self._connect()
-        ) as connection:
-            with connection:
-                cursor = connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
                     DELETE FROM conversations
                     WHERE owner_id = ?
                       AND thread_id = ?
                     """,
-                    (
-                        owner_id,
-                        thread_id,
-                    ),
-                )
+                (
+                    owner_id,
+                    thread_id,
+                ),
+            )
 
-                return cursor.rowcount > 0
+            return cursor.rowcount > 0
 
     def _connect(
         self,
     ) -> sqlite3.Connection:
         """打开启用行对象访问的 SQLite 连接。"""
-        connection = sqlite3.connect(
-            self._database_path
-        )
+        connection = sqlite3.connect(self._database_path)
 
-        connection.row_factory = (
-            sqlite3.Row
-        )
+        connection.row_factory = sqlite3.Row
 
         return connection
 
@@ -286,12 +240,9 @@ class ConversationRepository:
         self,
     ) -> None:
         """创建会话表和查询索引。"""
-        with closing(
-            self._connect()
-        ) as connection:
-            with connection:
-                connection.execute(
-                    """
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
                     CREATE TABLE IF NOT EXISTS
                         conversations (
                             owner_id TEXT NOT NULL,
@@ -305,10 +256,10 @@ class ConversationRepository:
                             )
                         )
                     """
-                )
+            )
 
-                connection.execute(
-                    """
+            connection.execute(
+                """
                     CREATE INDEX IF NOT EXISTS
                         idx_conversations_owner_updated
                     ON conversations (
@@ -316,7 +267,7 @@ class ConversationRepository:
                         updated_at DESC
                     )
                     """
-                )
+            )
 
     @staticmethod
     def _row_to_conversation(
@@ -327,16 +278,8 @@ class ConversationRepository:
             owner_id=row["owner_id"],
             thread_id=row["thread_id"],
             title=row["title"],
-            created_at=(
-                datetime.fromisoformat(
-                    row["created_at"]
-                )
-            ),
-            updated_at=(
-                datetime.fromisoformat(
-                    row["updated_at"]
-                )
-            ),
+            created_at=(datetime.fromisoformat(row["created_at"])),
+            updated_at=(datetime.fromisoformat(row["updated_at"])),
         )
 
     @staticmethod
@@ -344,9 +287,7 @@ class ConversationRepository:
         message: str,
     ) -> str:
         """根据首条消息生成长度受限的默认标题。"""
-        normalized = " ".join(
-            message.split()
-        )
+        normalized = " ".join(message.split())
 
         if not normalized:
             return "新对话"

@@ -1,11 +1,9 @@
 """将受支持的知识文件加载为 LangChain 文档。"""
 
-
 from pathlib import Path
 
 from langchain_core.documents import Document
 from pypdf import PdfReader
-
 
 SUPPORTED_SUFFIXES = {".txt", ".md", ".pdf"}
 
@@ -15,9 +13,7 @@ def load_source_documents(file_path: Path) -> list[Document]:
     suffix = file_path.suffix.lower()
 
     if suffix not in SUPPORTED_SUFFIXES:
-        raise ValueError(
-            f"不支持的文件类型：{suffix}，目前只支持 TXT、Markdown 和 PDF"
-        )
+        raise ValueError(f"不支持的文件类型：{suffix}，目前只支持 TXT、Markdown 和 PDF")
 
     if suffix in {".txt", ".md"}:
         content = file_path.read_text(encoding="utf-8")
@@ -42,7 +38,6 @@ def _load_pdf(file_path: Path) -> list[Document]:
 
     for page_number, page in enumerate(reader.pages, start=1):
         content = page.extract_text() or ""
-
 
         if not content.strip():
             continue

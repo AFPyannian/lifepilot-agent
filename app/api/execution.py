@@ -1,6 +1,5 @@
 """封装 LangGraph 执行恢复和回答提取逻辑。"""
 
-
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -10,10 +9,7 @@ from langchain_core.messages import (
     BaseMessage,
 )
 
-
-logger = logging.getLogger(
-    "lifepilot.api.execution"
-)
+logger = logging.getLogger("lifepilot.api.execution")
 
 
 def resume_pending_execution(
@@ -28,25 +24,19 @@ def resume_pending_execution(
         return
 
     logger.warning(
-        "Pending Agent execution detected "
-        "next_nodes=%s",
+        "Pending Agent execution detected next_nodes=%s",
         snapshot.next,
     )
-
 
     graph.invoke(
         None,
         config=config,
     )
 
-    resumed_snapshot = graph.get_state(
-        config
-    )
+    resumed_snapshot = graph.get_state(config)
 
     if resumed_snapshot.next:
-        raise RuntimeError(
-            "恢复执行后仍然存在未完成节点"
-        )
+        raise RuntimeError("恢复执行后仍然存在未完成节点")
 
 
 def extract_latest_ai_reply(
@@ -80,13 +70,9 @@ def extract_latest_ai_reply(
                     if isinstance(text, str):
                         text_parts.append(text)
 
-            combined_text = "".join(
-                text_parts
-            ).strip()
+            combined_text = "".join(text_parts).strip()
 
             if combined_text:
                 return combined_text
 
-    raise RuntimeError(
-        "Agent 没有返回有效的 AI 消息"
-    )
+    raise RuntimeError("Agent 没有返回有效的 AI 消息")

@@ -1,6 +1,5 @@
 """将用户资料和长期记忆整理为模型上下文。"""
 
-
 from app.repositories.user_memory_repository import (
     UserMemoryRepository,
 )
@@ -8,6 +7,7 @@ from app.repositories.user_memory_repository import (
 """
 创建自动注入的记忆上下文
 """
+
 
 def build_user_memory_context(
     repository: UserMemoryRepository,
@@ -34,22 +34,10 @@ def build_user_memory_context(
         lines.extend(
             [
                 "用户资料：",
-                (
-                    "- 姓名："
-                    f"{profile.display_name or '未设置'}"
-                ),
-                (
-                    "- 职业："
-                    f"{profile.occupation or '未设置'}"
-                ),
-                (
-                    "- 当前目标："
-                    f"{profile.current_goal or '未设置'}"
-                ),
-                (
-                    "- 回答风格："
-                    f"{profile.response_style or '未设置'}"
-                ),
+                (f"- 姓名：{profile.display_name or '未设置'}"),
+                (f"- 职业：{profile.occupation or '未设置'}"),
+                (f"- 当前目标：{profile.current_goal or '未设置'}"),
+                (f"- 回答风格：{profile.response_style or '未设置'}"),
             ]
         )
 
@@ -58,12 +46,6 @@ def build_user_memory_context(
     else:
         lines.append("长期记忆：")
 
-        lines.extend(
-            (
-                f"- [{memory.category}] "
-                f"{memory.content}"
-            )
-            for memory in memories
-        )
+        lines.extend((f"- [{memory.category}] {memory.content}") for memory in memories)
 
     return "\n".join(lines)

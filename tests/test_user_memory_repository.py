@@ -1,15 +1,12 @@
 """验证用户资料和长期记忆仓储。"""
 
-
 from app.repositories.user_memory_repository import (
     UserMemoryRepository,
 )
 
 
 def create_repository(tmp_path):
-    return UserMemoryRepository(
-        tmp_path / "application.db"
-    )
+    return UserMemoryRepository(tmp_path / "application.db")
 
 
 def test_create_and_update_profile(tmp_path):
@@ -29,10 +26,7 @@ def test_create_and_update_profile(tmp_path):
     assert first.display_name == "小李"
     assert second.display_name == "小李"
     assert second.occupation == "Python学习者"
-    assert (
-        second.current_goal
-        == "成为Agent开发工程师"
-    )
+    assert second.current_goal == "成为Agent开发工程师"
 
 
 def test_add_memory_without_duplicates(
@@ -52,9 +46,7 @@ def test_add_memory_without_duplicates(
         content="喜欢简洁的回答",
     )
 
-    memories = repository.list_recent(
-        "user-1"
-    )
+    memories = repository.list_recent("user-1")
 
     assert first.id == second.id
     assert len(memories) == 1
@@ -75,10 +67,7 @@ def test_search_memory(tmp_path):
     )
 
     assert len(results) == 1
-    assert (
-        results[0].content
-        == "正在学习LangGraph"
-    )
+    assert results[0].content == "正在学习LangGraph"
 
 
 def test_memories_are_isolated(tmp_path):

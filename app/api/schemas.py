@@ -1,8 +1,7 @@
 """定义 LifePilot HTTP API 的请求和响应模型。"""
 
-
-from typing import Any, Literal
 from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -106,9 +105,8 @@ class ApprovalResumeResponse(BaseModel):
     thread_id: str
     reply: str | None = None
 
-    approval_request: (
-        dict[str, Any] | None
-    ) = None
+    approval_request: dict[str, Any] | None = None
+
 
 class ConversationSummary(BaseModel):
     """表示历史会话列表中的摘要。"""
@@ -122,9 +120,7 @@ class ConversationSummary(BaseModel):
 class ConversationListResponse(BaseModel):
     """表示历史会话列表。"""
 
-    conversations: list[
-        ConversationSummary
-    ]
+    conversations: list[ConversationSummary]
 
 
 class ConversationMessage(BaseModel):
@@ -146,13 +142,9 @@ class ConversationDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    messages: list[
-        ConversationMessage
-    ]
+    messages: list[ConversationMessage]
 
-    pending_approval: (
-        dict[str, Any] | None
-    ) = None
+    pending_approval: dict[str, Any] | None = None
 
 
 class RenameConversationRequest(BaseModel):
@@ -176,14 +168,10 @@ class RenameConversationRequest(BaseModel):
         if not isinstance(value, str):
             return value
 
-        clean_value = " ".join(
-            value.split()
-        )
+        clean_value = " ".join(value.split())
 
         if not clean_value:
-            raise ValueError(
-                "标题不能为空"
-            )
+            raise ValueError("标题不能为空")
 
         return clean_value
 

@@ -1,6 +1,5 @@
 """验证 SSE 事件编码和流式输出。"""
 
-
 from types import SimpleNamespace
 from typing import Any
 
@@ -28,33 +27,19 @@ class FakeStreamingGraph:
         self.fail = fail
         self.resume_count = 0
 
-        self.last_input: (
-            dict[str, Any] | None
-        ) = None
+        self.last_input: dict[str, Any] | None = None
 
-        self.last_config: (
-            dict[str, Any] | None
-        ) = None
+        self.last_config: dict[str, Any] | None = None
 
-        self.last_stream_mode: (
-            str | None
-        ) = None
+        self.last_stream_mode: str | None = None
 
-        self.last_version: (
-            str | None
-        ) = None
+        self.last_version: str | None = None
 
     def get_state(
         self,
         config: dict[str, Any],
     ) -> SimpleNamespace:
-        return SimpleNamespace(
-            next=(
-                ("tools",)
-                if self.pending
-                else ()
-            )
-        )
+        return SimpleNamespace(next=(("tools",) if self.pending else ()))
 
     def invoke(
         self,
@@ -65,17 +50,9 @@ class FakeStreamingGraph:
             self.pending = False
             self.resume_count += 1
 
-            return {
-                "messages": [
-                    AIMessage(
-                        content="恢复完成"
-                    )
-                ]
-            }
+            return {"messages": [AIMessage(content="恢复完成")]}
 
-        raise AssertionError(
-            "流式接口不应调用普通 invoke"
-        )
+        raise AssertionError("流式接口不应调用普通 invoke")
 
     def stream(
         self,
@@ -91,20 +68,14 @@ class FakeStreamingGraph:
         self.last_version = version
 
         if self.fail:
-            raise RuntimeError(
-                "不应发送给客户端的内部错误"
-            )
+            raise RuntimeError("不应发送给客户端的内部错误")
 
         yield {
             "type": "messages",
             "ns": (),
             "data": (
-                AIMessageChunk(
-                    content="不应显示"
-                ),
-                {
-                    "langgraph_node": "tools"
-                },
+                AIMessageChunk(content="不应显示"),
+                {"langgraph_node": "tools"},
             ),
         }
 
@@ -117,14 +88,8 @@ class FakeStreamingGraph:
                 "type": "messages",
                 "ns": (),
                 "data": (
-                    AIMessageChunk(
-                        content=token
-                    ),
-                    {
-                        "langgraph_node": (
-                            "assistant"
-                        )
-                    },
+                    AIMessageChunk(content=token),
+                    {"langgraph_node": ("assistant")},
                 ),
             }
 
@@ -132,30 +97,26 @@ class FakeStreamingGraph:
 def read_stream_response(
     graph: FakeStreamingGraph,
 ) -> tuple[int, str, str]:
-    app = create_app(
-        agent_graph=graph
-    )
+    app = create_app(agent_graph=graph)
 
-    with TestClient(app) as client:
-        with client.stream(
+    with (
+        TestClient(app) as client,
+        client.stream(
             method="POST",
             url="/api/v1/chat/stream",
             json={
                 "message": "你好",
                 "thread_id": "stream-test",
             },
-        ) as response:
-            body = "".join(
-                response.iter_text()
-            )
+        ) as response,
+    ):
+        body = "".join(response.iter_text())
 
-            return (
-                response.status_code,
-                response.headers[
-                    "content-type"
-                ],
-                body,
-            )
+        return (
+            response.status_code,
+            response.headers["content-type"],
+            body,
+        )
 
 
 def test_create_sse_event() -> None:
@@ -166,51 +127,27 @@ def test_create_sse_event() -> None:
         },
     )
 
-    assert event == (
-        "event: token\n"
-        'data: {"content":"你好\\n世界"}\n'
-        "\n"
-    )
+    assert event == ('event: token\ndata: {"content":"你好\\n世界"}\n\n')
 
 
 def test_stream_chat_endpoint() -> None:
     graph = FakeStreamingGraph()
 
-    status_code, content_type, body = (
-        read_stream_response(
-            graph=graph,
-        )
+    status_code, content_type, body = read_stream_response(
+        graph=graph,
     )
 
     assert status_code == 200
 
-    assert content_type.startswith(
-        "text/event-stream"
-    )
+    assert content_type.startswith("text/event-stream")
 
-    assert (
-        'event: start\n'
-        'data: {"thread_id":"stream-test"}'
-        in body
-    )
+    assert 'event: start\ndata: {"thread_id":"stream-test"}' in body
 
-    assert (
-        'event: token\n'
-        'data: {"content":"这是"}'
-        in body
-    )
+    assert 'event: token\ndata: {"content":"这是"}' in body
 
-    assert (
-        'event: token\n'
-        'data: {"content":"流式"}'
-        in body
-    )
+    assert 'event: token\ndata: {"content":"流式"}' in body
 
-    assert (
-        'event: done\n'
-        'data: {"thread_id":"stream-test"}'
-        in body
-    )
+    assert 'event: done\ndata: {"thread_id":"stream-test"}' in body
 
     assert "不应显示" not in body
     assert graph.last_stream_mode == "messages"
@@ -218,9 +155,7 @@ def test_stream_chat_endpoint() -> None:
 
 
 def test_stream_resumes_pending_execution() -> None:
-    graph = FakeStreamingGraph(
-        pending=True
-    )
+    graph = FakeStreamingGraph(pending=True)
 
     _, _, body = read_stream_response(
         graph=graph,
@@ -232,29 +167,18 @@ def test_stream_resumes_pending_execution() -> None:
 
 
 def test_stream_returns_safe_error_event() -> None:
-    graph = FakeStreamingGraph(
-        fail=True
-    )
+    graph = FakeStreamingGraph(fail=True)
 
-    status_code, _, body = (
-        read_stream_response(
-            graph=graph,
-        )
+    status_code, _, body = read_stream_response(
+        graph=graph,
     )
-
 
     assert status_code == 200
 
     assert "event: error" in body
 
-    assert (
-        "LifePilot 生成回答时发生内部错误"
-        in body
-    )
+    assert "LifePilot 生成回答时发生内部错误" in body
 
-    assert (
-        "不应发送给客户端的内部错误"
-        not in body
-    )
+    assert "不应发送给客户端的内部错误" not in body
 
     assert "event: done" not in body

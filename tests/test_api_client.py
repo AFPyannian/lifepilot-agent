@@ -1,6 +1,5 @@
 """验证 LifePilot HTTP 和 SSE 客户端。"""
 
-
 import json
 
 import httpx
@@ -63,26 +62,19 @@ def test_health_check() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
-        assert (
-            request.url.path
-            == "/api/v1/health"
-        )
+        assert request.url.path == "/api/v1/health"
 
         return httpx.Response(
             status_code=200,
             json={
                 "status": "ok",
-                "service": (
-                    "lifepilot-agent"
-                ),
+                "service": ("lifepilot-agent"),
             },
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     assert client.is_healthy() is True
@@ -107,27 +99,17 @@ def test_stream_chat_returns_tokens() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
-        assert (
-            request.url.path
-            == "/api/v1/chat/stream"
-        )
+        assert request.url.path == "/api/v1/chat/stream"
 
         return httpx.Response(
             status_code=200,
-            headers={
-                "content-type": (
-                    "text/event-stream; "
-                    "charset=utf-8"
-                )
-            },
+            headers={"content-type": ("text/event-stream; charset=utf-8")},
             text=sse_body,
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     tokens = list(
@@ -156,19 +138,13 @@ def test_stream_chat_raises_sse_error() -> None:
     ) -> httpx.Response:
         return httpx.Response(
             status_code=200,
-            headers={
-                "content-type": (
-                    "text/event-stream"
-                )
-            },
+            headers={"content-type": ("text/event-stream")},
             text=sse_body,
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     with pytest.raises(
@@ -198,19 +174,13 @@ def test_stream_chat_detects_incomplete_stream() -> None:
     ) -> httpx.Response:
         return httpx.Response(
             status_code=200,
-            headers={
-                "content-type": (
-                    "text/event-stream"
-                )
-            },
+            headers={"content-type": ("text/event-stream")},
             text=sse_body,
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     with pytest.raises(
@@ -231,16 +201,12 @@ def test_http_error_uses_safe_detail() -> None:
     ) -> httpx.Response:
         return httpx.Response(
             status_code=503,
-            json={
-                "detail": "模型服务暂时不可用。"
-            },
+            json={"detail": "模型服务暂时不可用。"},
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     with pytest.raises(
@@ -259,20 +225,13 @@ def test_upload_document() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
-        assert (
-            request.url.path
-            == "/api/v1/knowledge/documents"
-        )
+        assert request.url.path == "/api/v1/knowledge/documents"
 
         assert request.method == "POST"
 
-        content_type = request.headers[
-            "content-type"
-        ]
+        content_type = request.headers["content-type"]
 
-        assert content_type.startswith(
-            "multipart/form-data"
-        )
+        assert content_type.startswith("multipart/form-data")
 
         return httpx.Response(
             status_code=200,
@@ -285,9 +244,7 @@ def test_upload_document() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     result = client.upload_document(
@@ -309,9 +266,7 @@ def test_list_documents() -> None:
             json={
                 "documents": [
                     {
-                        "filename": (
-                            "guide.md"
-                        ),
+                        "filename": ("guide.md"),
                         "chunk_count": 2,
                     }
                 ]
@@ -320,9 +275,7 @@ def test_list_documents() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     assert client.list_documents() == [
@@ -339,10 +292,7 @@ def test_delete_document_encodes_filename() -> None:
     ) -> httpx.Response:
         assert request.method == "DELETE"
 
-        assert (
-            b"%E5%AD%A6%E4%B9%A0.md"
-            in request.url.raw_path
-        )
+        assert b"%E5%AD%A6%E4%B9%A0.md" in request.url.raw_path
 
         return httpx.Response(
             status_code=200,
@@ -354,17 +304,10 @@ def test_delete_document_encodes_filename() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
-    assert (
-        client.delete_document(
-            "学习.md"
-        )
-        is True
-    )
+    assert client.delete_document("学习.md") is True
 
 
 def test_stream_chat_requires_approval() -> None:
@@ -385,24 +328,16 @@ def test_stream_chat_requires_approval() -> None:
     ) -> httpx.Response:
         return httpx.Response(
             status_code=200,
-            headers={
-                "content-type": (
-                    "text/event-stream"
-                )
-            },
+            headers={"content-type": ("text/event-stream")},
             text=sse_body,
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
-    with pytest.raises(
-        ApprovalRequired
-    ) as error_info:
+    with pytest.raises(ApprovalRequired) as error_info:
         list(
             client.stream_chat(
                 message="删除待办1",
@@ -410,22 +345,14 @@ def test_stream_chat_requires_approval() -> None:
             )
         )
 
-    assert (
-        error_info.value.request[
-            "tool_name"
-        ]
-        == "delete_todo"
-    )
+    assert error_info.value.request["tool_name"] == "delete_todo"
 
 
 def test_resume_chat() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
-        assert (
-            request.url.path
-            == "/api/v1/chat/resume"
-        )
+        assert request.url.path == "/api/v1/chat/resume"
 
         return httpx.Response(
             status_code=200,
@@ -439,9 +366,7 @@ def test_resume_chat() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     reply = client.resume_chat(
@@ -458,30 +383,17 @@ def test_list_conversations() -> None:
     ) -> httpx.Response:
         assert request.method == "GET"
 
-        assert (
-            request.url.path
-            == "/api/v1/conversations"
-        )
+        assert request.url.path == "/api/v1/conversations"
 
         return httpx.Response(
             status_code=200,
             json={
                 "conversations": [
                     {
-                        "thread_id": (
-                            "web-thread-1"
-                        ),
-                        "title": (
-                            "LangGraph学习"
-                        ),
-                        "created_at": (
-                            "2026-08-25"
-                            "T01:00:00+00:00"
-                        ),
-                        "updated_at": (
-                            "2026-08-25"
-                            "T02:00:00+00:00"
-                        ),
+                        "thread_id": ("web-thread-1"),
+                        "title": ("LangGraph学习"),
+                        "created_at": ("2026-08-25T01:00:00+00:00"),
+                        "updated_at": ("2026-08-25T02:00:00+00:00"),
                     }
                 ]
             },
@@ -489,57 +401,38 @@ def test_list_conversations() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
-    conversations = (
-        client.list_conversations()
-    )
+    conversations = client.list_conversations()
 
     assert conversations == [
         {
             "thread_id": "web-thread-1",
             "title": "LangGraph学习",
-            "created_at": (
-                "2026-08-25"
-                "T01:00:00+00:00"
-            ),
-            "updated_at": (
-                "2026-08-25"
-                "T02:00:00+00:00"
-            ),
+            "created_at": ("2026-08-25T01:00:00+00:00"),
+            "updated_at": ("2026-08-25T02:00:00+00:00"),
         }
     ]
 
 
-def test_list_conversations_rejects_invalid_response(
-) -> None:
+def test_list_conversations_rejects_invalid_response() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
         return httpx.Response(
             status_code=200,
-            json={
-                "conversations": {
-                    "thread_id": "invalid"
-                }
-            },
+            json={"conversations": {"thread_id": "invalid"}},
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     with pytest.raises(
         LifePilotApiError,
-        match=(
-            "历史会话响应格式不正确"
-        ),
+        match=("历史会话响应格式不正确"),
     ):
         client.list_conversations()
 
@@ -550,32 +443,17 @@ def test_get_conversation() -> None:
     ) -> httpx.Response:
         assert request.method == "GET"
 
-        assert (
-            request.url.path
-            == (
-                "/api/v1/conversations/"
-                "web:test"
-            )
-        )
+        assert request.url.path == ("/api/v1/conversations/web:test")
 
-        assert (
-            b"web%3Atest"
-            in request.url.raw_path
-        )
+        assert b"web%3Atest" in request.url.raw_path
 
         return httpx.Response(
             status_code=200,
             json={
                 "thread_id": "web:test",
                 "title": "测试会话",
-                "created_at": (
-                    "2026-08-25"
-                    "T01:00:00+00:00"
-                ),
-                "updated_at": (
-                    "2026-08-25"
-                    "T02:00:00+00:00"
-                ),
+                "created_at": ("2026-08-25T01:00:00+00:00"),
+                "updated_at": ("2026-08-25T02:00:00+00:00"),
                 "messages": [
                     {
                         "role": "user",
@@ -592,19 +470,12 @@ def test_get_conversation() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
-    detail = client.get_conversation(
-        thread_id="web:test"
-    )
+    detail = client.get_conversation(thread_id="web:test")
 
-    assert (
-        detail["thread_id"]
-        == "web:test"
-    )
+    assert detail["thread_id"] == "web:test"
 
     assert detail["messages"] == [
         {
@@ -617,10 +488,7 @@ def test_get_conversation() -> None:
         },
     ]
 
-    assert (
-        detail["pending_approval"]
-        is None
-    )
+    assert detail["pending_approval"] is None
 
 
 def test_rename_conversation() -> None:
@@ -629,49 +497,25 @@ def test_rename_conversation() -> None:
     ) -> httpx.Response:
         assert request.method == "PATCH"
 
-        assert (
-            request.url.path
-            == (
-                "/api/v1/conversations/"
-                "web-thread-1"
-            )
-        )
+        assert request.url.path == ("/api/v1/conversations/web-thread-1")
 
-        request_data = json.loads(
-            request.content.decode(
-                "utf-8"
-            )
-        )
+        request_data = json.loads(request.content.decode("utf-8"))
 
-        assert request_data == {
-            "title": "新的会话标题"
-        }
+        assert request_data == {"title": "新的会话标题"}
 
         return httpx.Response(
             status_code=200,
             json={
-                "thread_id": (
-                    "web-thread-1"
-                ),
-                "title": (
-                    "新的会话标题"
-                ),
-                "created_at": (
-                    "2026-08-25"
-                    "T01:00:00+00:00"
-                ),
-                "updated_at": (
-                    "2026-08-25"
-                    "T03:00:00+00:00"
-                ),
+                "thread_id": ("web-thread-1"),
+                "title": ("新的会话标题"),
+                "created_at": ("2026-08-25T01:00:00+00:00"),
+                "updated_at": ("2026-08-25T03:00:00+00:00"),
             },
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
     result = client.rename_conversation(
@@ -679,15 +523,9 @@ def test_rename_conversation() -> None:
         title="新的会话标题",
     )
 
-    assert (
-        result["thread_id"]
-        == "web-thread-1"
-    )
+    assert result["thread_id"] == "web-thread-1"
 
-    assert (
-        result["title"]
-        == "新的会话标题"
-    )
+    assert result["title"] == "新的会话标题"
 
 
 def test_delete_conversation() -> None:
@@ -696,33 +534,21 @@ def test_delete_conversation() -> None:
     ) -> httpx.Response:
         assert request.method == "DELETE"
 
-        assert (
-            request.url.path
-            == (
-                "/api/v1/conversations/"
-                "web-thread-1"
-            )
-        )
+        assert request.url.path == ("/api/v1/conversations/web-thread-1")
 
         return httpx.Response(
             status_code=200,
             json={
-                "thread_id": (
-                    "web-thread-1"
-                ),
+                "thread_id": ("web-thread-1"),
                 "deleted": True,
             },
         )
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        transport=httpx.MockTransport(
-            handler
-        ),
+        transport=httpx.MockTransport(handler),
     )
 
-    deleted = client.delete_conversation(
-        thread_id="web-thread-1"
-    )
+    deleted = client.delete_conversation(thread_id="web-thread-1")
 
     assert deleted is True

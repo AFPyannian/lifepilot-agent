@@ -1,6 +1,5 @@
 """验证 LangGraph 运行配置元数据。"""
 
-
 from types import SimpleNamespace
 
 from app.api.run_config import (
@@ -13,16 +12,12 @@ def test_build_run_config() -> None:
         app=SimpleNamespace(
             state=SimpleNamespace(
                 settings=SimpleNamespace(
-                    app_environment=(
-                        "development"
-                    ),
+                    app_environment=("development"),
                     owner_id="test-user",
                 )
             )
         ),
-        state=SimpleNamespace(
-            request_id="request-001"
-        ),
+        state=SimpleNamespace(request_id="request-001"),
     )
 
     config = build_run_config(
@@ -35,15 +30,9 @@ def test_build_run_config() -> None:
         "thread_id": "thread-001",
     }
 
-    assert (
-        config["run_name"]
-        == "lifepilot_stream_chat"
-    )
+    assert config["run_name"] == "lifepilot_stream_chat"
 
-    assert (
-        "development"
-        in config["tags"]
-    )
+    assert "development" in config["tags"]
 
     assert config["metadata"] == {
         "request_id": "request-001",

@@ -1,10 +1,9 @@
 """运行 Agent 工具轨迹和回答质量评估。"""
 
-
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
@@ -21,7 +20,6 @@ from app.repositories.note_repository import NoteRepository
 from app.repositories.todo_repository import TodoRepository
 from app.repositories.user_memory_repository import UserMemoryRepository
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 CASES_PATH = PROJECT_ROOT / "evaluations" / "agent_cases.json"
@@ -31,9 +29,7 @@ REPORT_DIRECTORY = PROJECT_ROOT / "evaluation_reports"
 
 def load_cases() -> list[dict[str, Any]]:
     """读取 Agent 离线评估数据集。"""
-    return json.loads(
-        CASES_PATH.read_text(encoding="utf-8")
-    )
+    return json.loads(CASES_PATH.read_text(encoding="utf-8"))
 
 
 def extract_tool_names(messages: list[Any]) -> list[str]:
@@ -108,13 +104,9 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
         actual_tools = extract_tool_names(messages)
         final_reply = extract_final_reply(messages)
 
-        required_tools = set(
-            case.get("required_tools", [])
-        )
+        required_tools = set(case.get("required_tools", []))
 
-        allowed_tools = set(
-            case.get("allowed_tools", case.get("required_tools", []))
-        )
+        allowed_tools = set(case.get("allowed_tools", case.get("required_tools", [])))
 
         actual_tool_set = set(actual_tools)
 
@@ -125,17 +117,12 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
         required_keywords = case.get("required_answer_keywords", [])
 
         keyword_pass = all(
-            keyword.lower() in final_reply.lower()
-            for keyword in required_keywords
+            keyword.lower() in final_reply.lower() for keyword in required_keywords
         )
 
-        latency_pass = (
-            latency_seconds <= case.get("max_latency_seconds", 60)
-        )
+        latency_pass = latency_seconds <= case.get("max_latency_seconds", 60)
 
-        interrupted = bool(
-            result.get("__interrupt__")
-        )
+        interrupted = bool(result.get("__interrupt__"))
 
         passed = all(
             [
@@ -152,19 +139,11 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
             "id": case["id"],
             "passed": passed,
             "input": case["input"],
-            "required_tools": sorted(
-                required_tools
-            ),
-            "allowed_tools": sorted(
-                allowed_tools
-            ),
+            "required_tools": sorted(required_tools),
+            "allowed_tools": sorted(allowed_tools),
             "actual_tools": actual_tools,
-            "required_tools_called": (
-                required_tools_called
-            ),
-            "no_unexpected_tools": (
-                no_unexpected_tools
-            ),
+            "required_tools_called": (required_tools_called),
+            "no_unexpected_tools": (no_unexpected_tools),
             "keyword_pass": keyword_pass,
             "latency_pass": latency_pass,
             "latency_seconds": round(
@@ -187,10 +166,7 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
                 3,
             ),
             "final_reply": "",
-            "error": (
-                f"{type(error).__name__}: "
-                f"{error}"
-            ),
+            "error": (f"{type(error).__name__}: {error}"),
         }
 
 
@@ -198,11 +174,7 @@ def print_result(
     result: dict[str, Any],
 ) -> None:
     """在控制台输出一个评估用例的摘要。"""
-    status = (
-        "PASS"
-        if result["passed"]
-        else "FAIL"
-    )
+    status = "PASS" if result["passed"] else "FAIL"
 
     print(
         f"[{status}] {result['id']} | "
@@ -211,9 +183,7 @@ def print_result(
     )
 
     if result.get("error"):
-        print(
-            f"  error: {result['error']}"
-        )
+        print(f"  error: {result['error']}")
 
 
 def write_report(results: list[dict[str, Any]]) -> Path:
@@ -223,22 +193,16 @@ def write_report(results: list[dict[str, Any]]) -> Path:
         exist_ok=True,
     )
 
-    passed_count = sum(
-        result["passed"] for result in results
-    )
+    passed_count = sum(result["passed"] for result in results)
 
     total_count = len(results)
 
     report = {
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "total_cases": total_count,
         "passed_cases": passed_count,
         "failed_cases": total_count - passed_count,
-        "pass_rate": (
-            passed_count / total_count
-            if total_count
-            else 0
-        ),
+        "pass_rate": (passed_count / total_count if total_count else 0),
         "results": results,
     }
 
@@ -276,25 +240,15 @@ def main() -> None:
     cases = load_cases()
 
     if args.case:
-        cases = [
-            case
-            for case in cases
-            if case["id"] == args.case
-        ]
+        cases = [case for case in cases if case["id"] == args.case]
 
         if not cases:
-            raise SystemExit(
-                f"没有找到评估用例：{args.case}"
-            )
+            raise SystemExit(f"没有找到评估用例：{args.case}")
 
     results: list[dict[str, Any]] = []
 
-    with TemporaryDirectory(
-        prefix="lifepilot-agent-eval-"
-    ) as temporary_directory:
-        temporary_root = Path(
-            temporary_directory
-        )
+    with TemporaryDirectory(prefix="lifepilot-agent-eval-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
 
         base_settings = get_settings()
 
@@ -311,43 +265,24 @@ def main() -> None:
             }
         )
 
-        configure_observability(
-            eval_settings
-        )
+        configure_observability(eval_settings)
 
-        todo_repository = TodoRepository(
-            eval_settings.app_database_path
-        )
+        todo_repository = TodoRepository(eval_settings.app_database_path)
 
-        note_repository = NoteRepository(
-            eval_settings.app_database_path
-        )
+        note_repository = NoteRepository(eval_settings.app_database_path)
 
-        memory_repository = (
-            UserMemoryRepository(
-                eval_settings.app_database_path
-            )
-        )
+        memory_repository = UserMemoryRepository(eval_settings.app_database_path)
 
         with open_sqlite_checkpointer(
-            eval_settings
-            .checkpoint_database_path
+            eval_settings.checkpoint_database_path
         ) as checkpointer:
             graph = build_graph(
                 settings=eval_settings,
                 checkpointer=checkpointer,
-                todo_repository=(
-                    todo_repository
-                ),
-                note_repository=(
-                    note_repository
-                ),
-                memory_repository=(
-                    memory_repository
-                ),
-                owner_id=(
-                    eval_settings.owner_id
-                ),
+                todo_repository=(todo_repository),
+                note_repository=(note_repository),
+                memory_repository=(memory_repository),
+                owner_id=(eval_settings.owner_id),
             )
 
             for case in cases:
@@ -361,26 +296,13 @@ def main() -> None:
 
     report_path = write_report(results)
 
-    pass_rate = (
-        sum(
-            result["passed"]
-            for result in results
-        )
-        / len(results)
-    )
+    pass_rate = sum(result["passed"] for result in results) / len(results)
 
     print()
-    print(
-        f"Pass rate: {pass_rate:.1%}"
-    )
-    print(
-        f"Report: {report_path}"
-    )
+    print(f"Pass rate: {pass_rate:.1%}")
+    print(f"Report: {report_path}")
 
-    if (
-        pass_rate
-        < args.minimum_pass_rate
-    ):
+    if pass_rate < args.minimum_pass_rate:
         sys.exit(1)
 
 

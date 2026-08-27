@@ -1,6 +1,5 @@
 """验证日志系统配置和关闭行为。"""
 
-
 import logging
 
 from app.config import Settings
@@ -25,31 +24,17 @@ def test_log_message_is_written_to_file(
     configure_logging(settings)
 
     try:
-        logger = logging.getLogger(
-            "lifepilot.test"
-        )
+        logger = logging.getLogger("lifepilot.test")
 
-        logger.info(
-            "Configuration test completed."
-        )
+        logger.info("Configuration test completed.")
 
-        for handler in logging.getLogger(
-            "lifepilot"
-        ).handlers:
+        for handler in logging.getLogger("lifepilot").handlers:
             handler.flush()
 
-        content = log_file.read_text(
-            encoding="utf-8"
-        )
+        content = log_file.read_text(encoding="utf-8")
 
-        assert (
-            "Configuration test completed."
-            in content
-        )
+        assert "Configuration test completed." in content
 
-        assert (
-            "test-secret-key"
-            not in content
-        )
+        assert "test-secret-key" not in content
     finally:
         shutdown_logging()

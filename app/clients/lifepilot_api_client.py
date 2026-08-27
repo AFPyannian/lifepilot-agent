@@ -1,6 +1,5 @@
 """实现 Streamlit 使用的 LifePilot HTTP 与 SSE 客户端。"""
 
-
 import json
 from collections.abc import (
     Iterable,
@@ -16,9 +15,7 @@ class LifePilotApiError(RuntimeError):
     """表示 LifePilot HTTP 或 SSE 请求失败。"""
 
 
-class ApprovalRequired(
-    LifePilotApiError
-):
+class ApprovalRequired(LifePilotApiError):
     """携带后端返回的待审批操作。"""
 
     def __init__(
@@ -26,9 +23,7 @@ class ApprovalRequired(
         request: dict[str, Any],
     ) -> None:
         """保存结构化审批请求。"""
-        super().__init__(
-            "操作需要用户审批。"
-        )
+        super().__init__("操作需要用户审批。")
 
         self.request = request
 
@@ -42,9 +37,7 @@ def iter_sse_events(
     data_lines: list[str] = []
 
     for raw_line in lines:
-
         line = raw_line.rstrip("\r")
-
 
         if line == "":
             if data_lines:
@@ -57,27 +50,21 @@ def iter_sse_events(
             data_lines = []
             continue
 
-
         if line.startswith(":"):
             continue
 
-        field, separator, value = (
-            line.partition(":")
-        )
+        field, separator, value = line.partition(":")
 
         if not separator:
             continue
 
-
-        if value.startswith(" "):
-            value = value[1:]
+        value = value.removeprefix(" ")
 
         if field == "event":
             event_name = value
 
         elif field == "data":
             data_lines.append(value)
-
 
     if data_lines:
         yield (
@@ -93,19 +80,13 @@ class LifePilotApiClient:
         self,
         base_url: str,
         timeout_seconds: float = 180.0,
-        transport: (
-            httpx.BaseTransport | None
-        ) = None,
+        transport: (httpx.BaseTransport | None) = None,
     ) -> None:
         """校验服务地址并保存超时和测试传输配置。"""
-        clean_base_url = (
-            base_url.strip().rstrip("/")
-        )
+        clean_base_url = base_url.strip().rstrip("/")
 
         if not clean_base_url:
-            raise ValueError(
-                "LifePilot API 地址不能为空。"
-            )
+            raise ValueError("LifePilot API 地址不能为空。")
 
         self._base_url = clean_base_url
 
@@ -114,28 +95,19 @@ class LifePilotApiClient:
             connect=10.0,
         )
 
-
         self._transport = transport
 
     def is_healthy(self) -> bool:
         """检查后端健康接口是否可用。"""
 
         try:
-            with (
-                self._create_http_client()
-                as client
-            ):
-                response = client.get(
-                    "/api/v1/health"
-                )
+            with self._create_http_client() as client:
+                response = client.get("/api/v1/health")
 
                 response.raise_for_status()
                 data = response.json()
 
-            return (
-                isinstance(data, dict)
-                and data.get("status") == "ok"
-            )
+            return isinstance(data, dict) and data.get("status") == "ok"
 
         except (
             httpx.HTTPError,
@@ -153,9 +125,7 @@ class LifePilotApiClient:
 
         return self._request_json(
             method="POST",
-            path=(
-                "/api/v1/knowledge/documents"
-            ),
+            path=("/api/v1/knowledge/documents"),
             files={
                 "file": (
                     filename,
@@ -172,9 +142,7 @@ class LifePilotApiClient:
 
         data = self._request_json(
             method="GET",
-            path=(
-                "/api/v1/knowledge/documents"
-            ),
+            path=("/api/v1/knowledge/documents"),
         )
 
         documents = data.get(
@@ -186,9 +154,7 @@ class LifePilotApiClient:
             documents,
             list,
         ):
-            raise LifePilotApiError(
-                "知识库列表响应格式不正确。"
-            )
+            raise LifePilotApiError("知识库列表响应格式不正确。")
 
         return documents
 
@@ -205,18 +171,13 @@ class LifePilotApiClient:
 
         data = self._request_json(
             method="DELETE",
-            path=(
-                "/api/v1/knowledge/documents/"
-                f"{encoded_filename}"
-            ),
+            path=(f"/api/v1/knowledge/documents/{encoded_filename}"),
         )
 
-        return bool(
-            data.get("deleted")
-        )
+        return bool(data.get("deleted"))
 
     def list_conversations(
-            self,
+        self,
     ) -> list[dict[str, Any]]:
         """返回历史会话摘要列表。"""
 
@@ -231,18 +192,16 @@ class LifePilotApiClient:
         )
 
         if not isinstance(
-                conversations,
-                list,
+            conversations,
+            list,
         ):
-            raise LifePilotApiError(
-                "历史会话响应格式不正确。"
-            )
+            raise LifePilotApiError("历史会话响应格式不正确。")
 
         return conversations
 
     def get_conversation(
-            self,
-            thread_id: str,
+        self,
+        thread_id: str,
     ) -> dict[str, Any]:
         """读取一段历史会话的详细状态。"""
 
@@ -253,16 +212,13 @@ class LifePilotApiClient:
 
         return self._request_json(
             method="GET",
-            path=(
-                "/api/v1/conversations/"
-                f"{encoded_thread_id}"
-            ),
+            path=(f"/api/v1/conversations/{encoded_thread_id}"),
         )
 
     def rename_conversation(
-            self,
-            thread_id: str,
-            title: str,
+        self,
+        thread_id: str,
+        title: str,
     ) -> dict[str, Any]:
         """修改历史会话标题。"""
 
@@ -273,18 +229,15 @@ class LifePilotApiClient:
 
         return self._request_json(
             method="PATCH",
-            path=(
-                "/api/v1/conversations/"
-                f"{encoded_thread_id}"
-            ),
+            path=(f"/api/v1/conversations/{encoded_thread_id}"),
             json={
                 "title": title,
             },
         )
 
     def delete_conversation(
-            self,
-            thread_id: str,
+        self,
+        thread_id: str,
     ) -> bool:
         """删除历史会话及其执行状态。"""
 
@@ -295,15 +248,10 @@ class LifePilotApiClient:
 
         data = self._request_json(
             method="DELETE",
-            path=(
-                "/api/v1/conversations/"
-                f"{encoded_thread_id}"
-            ),
+            path=(f"/api/v1/conversations/{encoded_thread_id}"),
         )
 
-        return bool(
-            data.get("deleted")
-        )
+        return bool(data.get("deleted"))
 
     def stream_chat(
         self,
@@ -314,154 +262,96 @@ class LifePilotApiClient:
 
         try:
             with (
-                self._create_http_client()
-                as client
-            ):
-                with client.stream(
+                self._create_http_client() as client,
+                client.stream(
                     method="POST",
                     url="/api/v1/chat/stream",
                     json={
                         "message": message,
                         "thread_id": thread_id,
                     },
-                ) as response:
-                    response.raise_for_status()
+                ) as response,
+            ):
+                response.raise_for_status()
 
-                    content_type = (
-                        response.headers.get(
-                            "content-type",
-                            "",
-                        )
-                    )
+                content_type = response.headers.get(
+                    "content-type",
+                    "",
+                )
 
-                    if (
-                        not content_type
-                        .lower()
-                        .startswith(
-                            "text/event-stream"
-                        )
-                    ):
-                        raise LifePilotApiError(
-                            "后端没有返回 SSE 流。"
-                        )
+                if not content_type.lower().startswith("text/event-stream"):
+                    raise LifePilotApiError("后端没有返回 SSE 流。")
 
-                    for (
-                        event_name,
-                        raw_data,
-                    ) in iter_sse_events(
-                        response.iter_lines()
-                    ):
-                        data = (
-                            self._parse_event_data(
-                                raw_data
-                            )
-                        )
+                for (
+                    event_name,
+                    raw_data,
+                ) in iter_sse_events(response.iter_lines()):
+                    data = self._parse_event_data(raw_data)
 
-                        if event_name == "start":
-                            continue
+                    if event_name == "start":
+                        continue
 
-                        if event_name == "token":
-                            content = data.get(
-                                "content"
-                            )
-
-                            if (
-                                isinstance(
-                                    content,
-                                    str,
-                                )
-                                and content
-                            ):
-                                yield content
-
-                            continue
+                    if event_name == "token":
+                        content = data.get("content")
 
                         if (
-                            event_name
-                            == "approval_required"
+                            isinstance(
+                                content,
+                                str,
+                            )
+                            and content
                         ):
-                            approval_request = (
-                                data.get(
-                                    "request"
-                                )
-                            )
+                            yield content
 
-                            if not isinstance(
-                                approval_request,
-                                dict,
-                            ):
-                                approval_request = {
-                                    "kind": (
-                                        "tool_approval"
-                                    ),
-                                    "tool_name": (
-                                        "unknown"
-                                    ),
-                                    "message": (
-                                        "是否批准"
-                                        "该操作？"
-                                    ),
-                                    "arguments": {},
-                                }
+                        continue
 
-                            raise ApprovalRequired(
-                                approval_request
-                            )
+                    if event_name == "approval_required":
+                        approval_request = data.get("request")
 
-                        if event_name == "error":
-                            error_message = (
-                                data.get(
-                                    "message",
-                                    (
-                                        "LifePilot "
-                                        "生成回答时"
-                                        "发生错误。"
-                                    ),
-                                )
-                            )
+                        if not isinstance(
+                            approval_request,
+                            dict,
+                        ):
+                            approval_request = {
+                                "kind": ("tool_approval"),
+                                "tool_name": ("unknown"),
+                                "message": ("是否批准该操作？"),
+                                "arguments": {},
+                            }
 
-                            raise LifePilotApiError(
-                                str(error_message)
-                            )
+                        raise ApprovalRequired(approval_request)
 
-                        if event_name == "done":
-                            return
+                    if event_name == "error":
+                        error_message = data.get(
+                            "message",
+                            ("LifePilot 生成回答时发生错误。"),
+                        )
 
+                        raise LifePilotApiError(str(error_message))
 
-            raise LifePilotApiError(
-                "流式连接意外中断。"
-            )
+                    if event_name == "done":
+                        return
+
+            raise LifePilotApiError("流式连接意外中断。")
 
         except LifePilotApiError:
             raise
 
         except httpx.HTTPStatusError as error:
-            detail = (
-                self._extract_http_error(
-                    error.response
-                )
-            )
+            detail = self._extract_http_error(error.response)
 
-            raise LifePilotApiError(
-                detail
-            ) from error
+            raise LifePilotApiError(detail) from error
 
         except httpx.ConnectError as error:
             raise LifePilotApiError(
-                "无法连接 LifePilot 后端，"
-                "请确认 FastAPI 已经启动。"
+                "无法连接 LifePilot 后端，请确认 FastAPI 已经启动。"
             ) from error
 
         except httpx.TimeoutException as error:
-            raise LifePilotApiError(
-                "请求超时，请稍后重试。"
-            ) from error
+            raise LifePilotApiError("请求超时，请稍后重试。") from error
 
         except httpx.HTTPError as error:
-            raise LifePilotApiError(
-                "与 LifePilot 后端"
-                "通信失败。"
-            ) from error
+            raise LifePilotApiError("与 LifePilot 后端通信失败。") from error
 
     def resume_chat(
         self,
@@ -479,15 +369,9 @@ class LifePilotApiClient:
             },
         )
 
-        response_status = data.get(
-            "status"
-        )
+        response_status = data.get("status")
 
-
-        if (
-            response_status
-            == "approval_required"
-        ):
+        if response_status == "approval_required":
             approval_request = data.get(
                 "approval_request",
                 {},
@@ -499,25 +383,15 @@ class LifePilotApiClient:
             ):
                 approval_request = {}
 
-            raise ApprovalRequired(
-                approval_request
-            )
+            raise ApprovalRequired(approval_request)
 
         if response_status != "completed":
-            raise LifePilotApiError(
-                "后端返回了未知的审批状态。"
-            )
+            raise LifePilotApiError("后端返回了未知的审批状态。")
 
         reply = data.get("reply")
 
-        if (
-            not isinstance(reply, str)
-            or not reply.strip()
-        ):
-            raise LifePilotApiError(
-                "Agent 恢复执行后没有"
-                "返回有效回答。"
-            )
+        if not isinstance(reply, str) or not reply.strip():
+            raise LifePilotApiError("Agent 恢复执行后没有返回有效回答。")
 
         return reply
 
@@ -530,10 +404,7 @@ class LifePilotApiClient:
         """发送普通请求并返回 JSON 对象。"""
 
         try:
-            with (
-                self._create_http_client()
-                as client
-            ):
+            with self._create_http_client() as client:
                 response = client.request(
                     method=method,
                     url=path,
@@ -544,9 +415,7 @@ class LifePilotApiClient:
                 data = response.json()
 
             if not isinstance(data, dict):
-                raise LifePilotApiError(
-                    "后端响应格式不正确。"
-                )
+                raise LifePilotApiError("后端响应格式不正确。")
 
             return data
 
@@ -554,37 +423,23 @@ class LifePilotApiClient:
             raise
 
         except httpx.HTTPStatusError as error:
-            detail = (
-                self._extract_http_error(
-                    error.response
-                )
-            )
+            detail = self._extract_http_error(error.response)
 
-            raise LifePilotApiError(
-                detail
-            ) from error
+            raise LifePilotApiError(detail) from error
 
         except httpx.ConnectError as error:
             raise LifePilotApiError(
-                "无法连接 LifePilot 后端，"
-                "请确认 FastAPI 已经启动。"
+                "无法连接 LifePilot 后端，请确认 FastAPI 已经启动。"
             ) from error
 
         except httpx.TimeoutException as error:
-            raise LifePilotApiError(
-                "请求超时，请稍后重试。"
-            ) from error
+            raise LifePilotApiError("请求超时，请稍后重试。") from error
 
         except httpx.HTTPError as error:
-            raise LifePilotApiError(
-                "与 LifePilot 后端"
-                "通信失败。"
-            ) from error
+            raise LifePilotApiError("与 LifePilot 后端通信失败。") from error
 
         except ValueError as error:
-            raise LifePilotApiError(
-                "后端返回了无法解析的数据。"
-            ) from error
+            raise LifePilotApiError("后端返回了无法解析的数据。") from error
 
     def _create_http_client(
         self,
@@ -602,20 +457,13 @@ class LifePilotApiClient:
     ) -> dict[str, Any]:
         """将 SSE 数据解析为 JSON 对象。"""
         try:
-            data = json.loads(
-                raw_data
-            )
+            data = json.loads(raw_data)
 
         except json.JSONDecodeError as error:
-            raise LifePilotApiError(
-                "后端返回了无法解析的"
-                " SSE 数据。"
-            ) from error
+            raise LifePilotApiError("后端返回了无法解析的 SSE 数据。") from error
 
         if not isinstance(data, dict):
-            raise LifePilotApiError(
-                "SSE 事件数据格式不正确。"
-            )
+            raise LifePilotApiError("SSE 事件数据格式不正确。")
 
         return data
 
@@ -628,9 +476,7 @@ class LifePilotApiClient:
             data = response.json()
 
             if isinstance(data, dict):
-                detail = data.get(
-                    "detail"
-                )
+                detail = data.get("detail")
 
                 if isinstance(detail, str):
                     return detail
@@ -638,7 +484,4 @@ class LifePilotApiClient:
         except ValueError:
             pass
 
-        return (
-            "后端请求失败，状态码："
-            f"{response.status_code}"
-        )
+        return f"后端请求失败，状态码：{response.status_code}"

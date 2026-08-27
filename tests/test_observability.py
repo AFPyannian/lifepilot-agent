@@ -1,6 +1,5 @@
 """验证 LangSmith 运行环境配置。"""
 
-
 import os
 
 import pytest
@@ -25,14 +24,9 @@ def test_tracing_disabled(
         langsmith_tracing=False,
     )
 
-    configure_observability(
-        settings
-    )
+    configure_observability(settings)
 
-    assert (
-        os.environ["LANGSMITH_TRACING"]
-        == "false"
-    )
+    assert os.environ["LANGSMITH_TRACING"] == "false"
 
 
 def test_tracing_exports_environment(
@@ -46,40 +40,22 @@ def test_tracing_exports_environment(
     settings = Settings(
         deepseek_api_key="test-key",
         langsmith_tracing=True,
-        langsmith_api_key=(
-            "langsmith-test-key"
-        ),
-        langsmith_project=(
-            "lifepilot-test"
-        ),
+        langsmith_api_key=("langsmith-test-key"),
+        langsmith_project=("lifepilot-test"),
         app_environment="test",
     )
 
-    configure_observability(
-        settings
-    )
+    configure_observability(settings)
 
-    assert (
-        os.environ["LANGSMITH_TRACING"]
-        == "true"
-    )
+    assert os.environ["LANGSMITH_TRACING"] == "true"
 
-    assert (
-        os.environ["LANGSMITH_PROJECT"]
-        == "lifepilot-test"
-    )
+    assert os.environ["LANGSMITH_PROJECT"] == "lifepilot-test"
 
-    assert (
-        os.environ["LANGSMITH_API_KEY"]
-        == "langsmith-test-key"
-    )
+    assert os.environ["LANGSMITH_API_KEY"] == "langsmith-test-key"
 
 
-def test_tracing_requires_api_key(
-) -> None:
-    with pytest.raises(
-        ValidationError
-    ):
+def test_tracing_requires_api_key() -> None:
+    with pytest.raises(ValidationError):
         Settings(
             deepseek_api_key="test-key",
             langsmith_tracing=True,
