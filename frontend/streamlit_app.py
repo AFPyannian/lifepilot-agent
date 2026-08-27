@@ -1,19 +1,24 @@
 """构建 LifePilot Streamlit 交互界面。"""
 
 import os
+import sys
 from pathlib import Path
 from uuid import uuid4
 
 import streamlit as st
 from dotenv import load_dotenv
 
-from app.clients import (
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Streamlit 以 frontend 目录执行脚本，需要显式加入项目根目录。
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.clients import (  # noqa: E402
     ApprovalRequired,
     LifePilotApiClient,
     LifePilotApiError,
 )
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(PROJECT_ROOT / ".env")
 
