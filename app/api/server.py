@@ -98,7 +98,7 @@ def create_app(
     application = FastAPI(
         title="LifePilot Agent API",
         description="基于LangGraph和DeepSeek的个人助理Agent后端服务",
-        version="0.1.0",
+        version="1.0.0",
         lifespan=lifespan,
         docs_url=None,
     )
