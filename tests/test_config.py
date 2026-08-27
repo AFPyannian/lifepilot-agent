@@ -61,3 +61,39 @@ def test_invalid_log_level_is_rejected(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_api_authentication_can_be_disabled_without_key() -> None:
+    settings = Settings(
+        _env_file=None,
+        deepseek_api_key="test-deepseek-key",
+        api_auth_enabled=False,
+        lifepilot_api_key=None,
+    )
+
+    assert settings.api_auth_enabled is False
+    assert settings.lifepilot_api_key is None
+
+
+def test_api_authentication_requires_api_key() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="LIFEPILOT_API_KEY",
+    ):
+        Settings(
+            _env_file=None,
+            deepseek_api_key="test-deepseek-key",
+            api_auth_enabled=True,
+            lifepilot_api_key=None,
+        )
+
+
+def test_lifepilot_api_key_is_masked() -> None:
+    settings = Settings(
+        _env_file=None,
+        deepseek_api_key="test-deepseek-key",
+        api_auth_enabled=True,
+        lifepilot_api_key="secret-lifepilot-key",
+    )
+
+    assert "secret-lifepilot-key" not in repr(settings)

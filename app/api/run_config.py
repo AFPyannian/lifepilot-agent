@@ -40,6 +40,11 @@ def build_run_config(
         "configurable": {
             "thread_id": thread_id,
         },
+        "recursion_limit": getattr(
+            settings,
+            "agent_recursion_limit",
+            25,
+        ),
         "run_name": (f"lifepilot_{operation}"),
         "tags": [
             "lifepilot",

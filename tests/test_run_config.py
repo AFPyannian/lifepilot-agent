@@ -14,6 +14,7 @@ def test_build_run_config() -> None:
                 settings=SimpleNamespace(
                     app_environment=("development"),
                     owner_id="test-user",
+                    agent_recursion_limit=40,
                 )
             )
         ),
@@ -29,6 +30,8 @@ def test_build_run_config() -> None:
     assert config["configurable"] == {
         "thread_id": "thread-001",
     }
+
+    assert config["recursion_limit"] == 40
 
     assert config["run_name"] == "lifepilot_stream_chat"
 

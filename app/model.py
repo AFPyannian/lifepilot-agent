@@ -13,7 +13,8 @@ def create_model(settings: Settings) -> ChatDeepSeek:
             api_key=settings.deepseek_api_key,
             model=settings.deepseek_model,
             temperature=0,
-            max_retries=2,
+            timeout=settings.deepseek_timeout_seconds,
+            max_retries=settings.deepseek_max_retries,
             streaming=True,
         )
     except Exception as error:

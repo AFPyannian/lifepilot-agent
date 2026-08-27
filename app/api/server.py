@@ -5,16 +5,19 @@ from contextlib import asynccontextmanager
 from threading import Lock
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Security
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from swagger_ui_bundle import swagger_ui_path  # type: ignore[import-untyped]
 
 from app.api.conversation_routes import router as conversation_router
+from app.api.health_routes import router as health_router
 from app.api.knowledge_routes import router as knowledge_router
 from app.api.middleware import RequestContextMiddleware
+from app.api.rate_limit import SlidingWindowRateLimitMiddleware
 from app.api.routes import router as chat_router
+from app.api.security import require_api_key
 from app.checkpointing import open_sqlite_checkpointer
 from app.config import Settings, apply_runtime_environment, get_settings
 from app.graph import build_graph
@@ -100,6 +103,7 @@ def create_app(
         docs_url=None,
     )
 
+    application.add_middleware(SlidingWindowRateLimitMiddleware)
     application.add_middleware(RequestContextMiddleware)
 
     application.mount(
@@ -124,21 +128,32 @@ def create_app(
         )
 
     application.include_router(
+        health_router,
+        prefix="/api/v1",
+        tags=["System"],
+    )
+
+    protected_dependencies = [Security(require_api_key)]
+
+    application.include_router(
         chat_router,
         prefix="/api/v1",
         tags=["LifePilot"],
+        dependencies=protected_dependencies,
     )
 
     application.include_router(
         knowledge_router,
         prefix="/api/v1",
         tags=["Knowledge Base"],
+        dependencies=protected_dependencies,
     )
 
     application.include_router(
         conversation_router,
         prefix="/api/v1",
         tags=["Conversations"],
+        dependencies=protected_dependencies,
     )
 
     return application

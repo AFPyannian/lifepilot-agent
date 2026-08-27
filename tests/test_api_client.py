@@ -80,6 +80,29 @@ def test_health_check() -> None:
     assert client.is_healthy() is True
 
 
+def test_client_sends_api_key() -> None:
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        assert request.headers["X-API-Key"] == "test-api-key"
+
+        return httpx.Response(
+            status_code=200,
+            json={
+                "status": "ok",
+                "service": "lifepilot-agent",
+            },
+        )
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        api_key="test-api-key",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.is_healthy() is True
+
+
 def test_stream_chat_returns_tokens() -> None:
     sse_body = (
         "event: start\n"

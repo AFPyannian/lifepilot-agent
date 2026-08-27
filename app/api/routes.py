@@ -20,7 +20,6 @@ from app.api.schemas import (
     ApprovalResumeResponse,
     ChatRequest,
     ChatResponse,
-    HealthResponse,
 )
 from app.api.streaming import stream_chat_events
 from app.exceptions import LifePilotError
@@ -28,19 +27,6 @@ from app.exceptions import LifePilotError
 logger = logging.getLogger("lifepilot.api")
 
 router = APIRouter()
-
-
-@router.get(
-    "/health",
-    response_model=HealthResponse,
-    summary="检查 LifePilot 服务状态",
-)
-def health_check() -> HealthResponse:
-    """返回 LifePilot 服务存活状态。"""
-    return HealthResponse(
-        status="ok",
-        service="lifepilot-agent",
-    )
 
 
 @router.post(

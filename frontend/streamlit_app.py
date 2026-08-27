@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
 
 API_BASE_URL = (os.getenv("LIFEPILOT_API_URL") or "http://127.0.0.1:8000").rstrip("/")
+LIFEPILOT_API_KEY = os.getenv("LIFEPILOT_API_KEY")
 
 
 st.set_page_config(
@@ -62,7 +63,10 @@ def check_backend_health(
 
 initialize_session_state()
 
-client = LifePilotApiClient(base_url=API_BASE_URL)
+client = LifePilotApiClient(
+    base_url=API_BASE_URL,
+    api_key=LIFEPILOT_API_KEY,
+)
 
 backend_available = check_backend_health(API_BASE_URL)
 

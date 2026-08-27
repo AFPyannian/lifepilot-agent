@@ -81,8 +81,9 @@ class LifePilotApiClient:
         base_url: str,
         timeout_seconds: float = 180.0,
         transport: (httpx.BaseTransport | None) = None,
+        api_key: str | None = None,
     ) -> None:
-        """校验服务地址并保存超时和测试传输配置。"""
+        """校验服务地址并保存认证、超时和测试传输配置。"""
         clean_base_url = base_url.strip().rstrip("/")
 
         if not clean_base_url:
@@ -96,6 +97,13 @@ class LifePilotApiClient:
         )
 
         self._transport = transport
+
+        self._headers: dict[str, str] = {}
+
+        normalized_api_key = api_key.strip() if api_key is not None else ""
+
+        if normalized_api_key:
+            self._headers["X-API-Key"] = normalized_api_key
 
     def is_healthy(self) -> bool:
         """检查后端健康接口是否可用。"""
@@ -449,6 +457,7 @@ class LifePilotApiClient:
             base_url=self._base_url,
             timeout=self._timeout,
             transport=self._transport,
+            headers=self._headers,
         )
 
     @staticmethod

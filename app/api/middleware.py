@@ -1,4 +1,4 @@
-"""提供请求标识和访问日志中间件。"""
+"""提供请求标识、基础安全响应头和访问日志中间件。"""
 
 import logging
 import re
@@ -79,6 +79,14 @@ class RequestContextMiddleware:
                         b"x-request-id",
                         request_id.encode("ascii"),
                     )
+                )
+
+                headers.extend(
+                    [
+                        (b"x-content-type-options", b"nosniff"),
+                        (b"x-frame-options", b"DENY"),
+                        (b"referrer-policy", b"no-referrer"),
+                    ]
                 )
 
                 message["headers"] = headers
