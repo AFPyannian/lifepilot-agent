@@ -80,7 +80,10 @@ class KnowledgeBaseService:
 
     def ingest(self, owner_id: str, filename: str) -> IngestionResult:
         """索引文档，并以内容哈希避免重复处理。"""
-        source_path = self._resolve_source(filename)
+        source_path = self._resolve_source(
+            owner_id,
+            filename,
+        )
 
         file_hash = sha256(source_path.read_bytes()).hexdigest()
 
@@ -260,14 +263,22 @@ class KnowledgeBaseService:
 
         return self._vector_store
 
-    def _resolve_source(self, filename: str) -> Path:
-        """校验并返回知识库根目录中的源文件。"""
+    def _resolve_source(
+        self,
+        owner_id: str,
+        filename: str,
+    ) -> Path:
+        """校验并返回当前用户知识库目录中的源文件。"""
         safe_filename = self._validate_filename(filename)
-        source_path = (self._source_directory / safe_filename).resolve()
+        user_directory = (self._source_directory / owner_id).resolve()
 
-        # 解析后的父目录必须仍是知识库根目录。
-        if source_path.parent != self._source_directory:
-            raise ValueError("只能读取 knowledge_base 目录中的文件")
+        if user_directory.parent != self._source_directory:
+            raise ValueError("用户知识库路径无效")
+
+        source_path = (user_directory / safe_filename).resolve()
+
+        if source_path.parent != user_directory:
+            raise ValueError("只能读取当前用户的 knowledge_base 目录")
 
         if not source_path.exists():
             raise ValueError(f"文件不存在：{safe_filename}")

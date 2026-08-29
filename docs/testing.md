@@ -10,6 +10,7 @@ LifePilot 的测试策略重点验证以下风险：
 - 删除操作是否必须经过人工审批。
 - RAG 是否能导入、检索和删除正确文档。
 - API、流式 SSE 和客户端协议是否保持一致。
+- Session 认证、账号状态和跨用户数据边界是否可靠。
 - 配置错误、外部模型错误和安全限制是否被正确处理。
 
 自动化测试默认离线运行，不调用真实 DeepSeek API，也不读取个人知识文档。
@@ -46,6 +47,7 @@ tests/test_todo_repository.py
 tests/test_note_repository.py
 tests/test_user_memory_repository.py
 tests/test_conversation_repository.py
+tests/test_auth_repository.py
 ```
 
 ### 3.2 Tool 测试
@@ -85,7 +87,8 @@ FastAPI TestClient 和 HTTPX MockTransport 用于验证：
 - 普通聊天和流式聊天。
 - 审批中断与恢复。
 - 会话和知识库管理。
-- API Key 认证。
+- 登录、Session 撤销、密码修改和登录限流。
+- 同名 thread ID、会话详情和知识文件的跨用户隔离。
 - 请求限流和安全响应头。
 - Request ID。
 - Streamlit API Client 请求格式。
@@ -109,7 +112,7 @@ python -m pytest tests/test_api_security.py -q
 运行单个测试：
 
 ```powershell
-python -m pytest tests/test_api_security.py::test_chat_accepts_valid_api_key -q
+python -m pytest tests/test_auth_api.py::test_login_and_logout_lifecycle -q
 ```
 
 运行覆盖率：

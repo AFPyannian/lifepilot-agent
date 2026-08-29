@@ -3,10 +3,10 @@
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
 from app.api.server import create_app
+from tests.helpers import AuthenticatedTestClient as TestClient
 
 
 class FakeGraph:
@@ -38,6 +38,7 @@ class FakeGraph:
         self,
         input_data: dict[str, Any] | None,
         config: dict[str, Any],
+        context: Any | None = None,
     ) -> dict[str, Any]:
         self.last_config = config
 
@@ -95,12 +96,14 @@ def test_chat_endpoint() -> None:
     }
 
     assert fake_graph.last_config["configurable"] == {
-        "thread_id": "test-thread-001",
+        "thread_id": "user:owner-1:thread:test-thread-001",
+        "user_id": "owner-1",
     }
 
     assert fake_graph.last_config["run_name"] == "lifepilot_chat"
 
     assert fake_graph.last_config["metadata"]["thread_id"] == "test-thread-001"
+    assert fake_graph.last_config["metadata"]["user_id"] == "owner-1"
 
     assert fake_graph.last_config["metadata"]["request_id"]
 

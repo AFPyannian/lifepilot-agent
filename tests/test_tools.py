@@ -14,10 +14,12 @@ def create_tools(
 
     tools = create_todo_tools(
         repository=repository,
-        owner_id=owner_id,
     )
 
-    return {current_tool.name: current_tool for current_tool in tools}
+    return {
+        current_tool.name: current_tool.with_config(configurable={"user_id": owner_id})
+        for current_tool in tools
+    }
 
 
 def test_empty_todo_list(
@@ -186,11 +188,13 @@ def test_data_survives_repository_recreation(
 
     first_tools = create_todo_tools(
         repository=first_repository,
-        owner_id="test-user",
     )
 
     first_tools_by_name = {
-        current_tool.name: current_tool for current_tool in first_tools
+        current_tool.name: current_tool.with_config(
+            configurable={"user_id": "test-user"}
+        )
+        for current_tool in first_tools
     }
 
     first_tools_by_name["add_todo"].invoke(
@@ -203,11 +207,13 @@ def test_data_survives_repository_recreation(
 
     second_tools = create_todo_tools(
         repository=second_repository,
-        owner_id="test-user",
     )
 
     second_tools_by_name = {
-        current_tool.name: current_tool for current_tool in second_tools
+        current_tool.name: current_tool.with_config(
+            configurable={"user_id": "test-user"}
+        )
+        for current_tool in second_tools
     }
 
     result = second_tools_by_name["list_todos"].invoke({})

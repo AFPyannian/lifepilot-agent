@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi.testclient import TestClient
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -15,6 +14,7 @@ from app.api.server import create_app
 from app.repositories.conversation_repository import (
     ConversationRepository,
 )
+from tests.helpers import AuthenticatedTestClient as TestClient
 
 
 class FakeCheckpointer:
@@ -81,7 +81,7 @@ def create_test_app(
     repository: ConversationRepository,
     graph: FakeConversationGraph,
 ):
-    settings = SimpleNamespace(owner_id="owner-1")
+    settings = SimpleNamespace()
 
     return create_app(
         agent_graph=graph,
@@ -197,7 +197,8 @@ def test_get_conversation_restores_messages_and_approval(
 
     assert graph.last_config == {
         "configurable": {
-            "thread_id": "thread-1",
+            "thread_id": "user:owner-1:thread:thread-1",
+            "user_id": "owner-1",
         }
     }
 
@@ -335,7 +336,7 @@ def test_delete_conversation_removes_metadata_and_checkpoints(
         "deleted": True,
     }
 
-    assert checkpointer.deleted_thread_ids == ["thread-1"]
+    assert checkpointer.deleted_thread_ids == ["user:owner-1:thread:thread-1"]
 
     assert (
         repository.get(

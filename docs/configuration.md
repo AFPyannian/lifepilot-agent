@@ -45,35 +45,40 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 
 | 环境变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `API_AUTH_ENABLED` | 否 | `false` | 是否要求业务接口携带 `X-API-Key` |
-| `LIFEPILOT_API_KEY` | 条件必填 | 空 | `API_AUTH_ENABLED=true` 时必须提供 |
+| `AUTH_SESSION_TTL_HOURS` | 否 | `168` | Session 有效期小时数，范围 1～2160 |
+| `AUTH_SESSION_TOUCH_INTERVAL_SECONDS` | 否 | `300` | Session 最近使用时间的最小更新间隔 |
+| `AUTH_LOGIN_MAX_FAILURES` | 否 | `5` | 登录窗口内允许的失败次数 |
+| `AUTH_LOGIN_WINDOW_SECONDS` | 否 | `900` | 登录失败计数窗口秒数 |
 | `API_RATE_LIMIT_ENABLED` | 否 | `true` | 是否启用进程内限流 |
 | `API_RATE_LIMIT_REQUESTS` | 否 | `60` | 一个时间窗口内允许的请求数 |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | 否 | `60` | 限流窗口秒数 |
 
-生成本地 API Key：
+账号认证始终启用。首次启动前创建管理员账号，密码使用 Argon2id 哈希后保存：
 
 ```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+python -m scripts.user_admin create --username admin --role admin
 ```
 
-示例：
+项目不提供公共注册。管理员可以在本机创建普通用户、禁用或启用账号，以及重置密码：
 
-```env
-API_AUTH_ENABLED=true
-LIFEPILOT_API_KEY=replace-with-generated-random-value
+```powershell
+python -m scripts.user_admin create --username alice --role user
+python -m scripts.user_admin status --username alice --status disabled
+python -m scripts.user_admin status --username alice --status active
+python -m scripts.user_admin reset-password --username alice
 ```
 
-认证只保护聊天、知识库和会话管理接口。以下端点保持公开：
+以下端点保持公开：
 
+- `/api/v1/auth/login`
 - `/api/v1/health`
 - `/api/v1/ready`
 - `/docs`
 - `/openapi.json`
 
-Streamlit 使用相同 `.env` 中的 `LIFEPILOT_API_KEY`。如果前后端使用不同环境，应保证两边配置相同的值。
+登录成功后 API 返回一次原始 Session 令牌，客户端通过 `Authorization: Bearer <token>` 访问其他接口；数据库只保存令牌摘要。Streamlit 仅在当前浏览器 Session 中保存原始令牌，不写入 `.env`、Cookie 或磁盘。
 
-当前限流器保存在进程内存中，服务重启后计数清空，不支持多 Worker 共享。
+登录失败限流按客户端 IP 和用户名摘要计数，业务限流按 Session 摘要计数。两个限流器都保存在进程内存中，服务重启后计数清空，不支持多 Worker 共享。
 
 ## 5. Agent 运行限制
 
@@ -83,14 +88,20 @@ Streamlit 使用相同 `.env` 中的 `LIFEPILOT_API_KEY`。如果前后端使用
 
 这个值限制单次图运行中的节点执行次数，不限制会话中的用户消息总数。
 
-## 6. 本地用户与会话
+## 6. 用户身份与会话
 
 | 环境变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `OWNER_ID` | `local-user` | 本地数据所属用户标识 |
+| `LOCAL_CLI_OWNER_ID` | `local-user` | 仅供直接运行 CLI 时使用的本地身份 |
 | `DEFAULT_THREAD_ID` | `main` | CLI 默认会话 ID |
 
-Repository 会按 `OWNER_ID` 隔离待办、笔记、用户资料和长期记忆。修改 owner ID 后，原 owner 的数据不会自动迁移。
+Web/API 的用户 UUID 只来自服务端认证结果，不接受请求体或模型参数指定身份。Repository、Checkpoint、知识文件和 Chroma 元数据都使用该 UUID 隔离数据；`LOCAL_CLI_OWNER_ID` 不影响 Web/API 用户。
+
+从 `v1.0.0` 升级时，先停止后端并创建目标账号，再执行以下命令。脚本会在 `data/migration-backups/<UTC时间>/` 中创建完整备份，然后迁移原 `local-user` 的数据库、Checkpoint、知识文件和向量元数据：
+
+```powershell
+python -m scripts.migrate_local_user --username admin --confirm
+```
 
 ## 7. 数据库配置
 
@@ -170,14 +181,16 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEK_TIMEOUT_SECONDS=60
 DEEPSEEK_MAX_RETRIES=2
 
-API_AUTH_ENABLED=true
-LIFEPILOT_API_KEY=replace-with-generated-random-value
+AUTH_SESSION_TTL_HOURS=168
+AUTH_SESSION_TOUCH_INTERVAL_SECONDS=300
+AUTH_LOGIN_MAX_FAILURES=5
+AUTH_LOGIN_WINDOW_SECONDS=900
 API_RATE_LIMIT_ENABLED=true
 API_RATE_LIMIT_REQUESTS=60
 API_RATE_LIMIT_WINDOW_SECONDS=60
 
 AGENT_RECURSION_LIMIT=25
-OWNER_ID=local-user
+LOCAL_CLI_OWNER_ID=local-user
 DEFAULT_THREAD_ID=main
 
 APP_ENVIRONMENT=development

@@ -63,32 +63,37 @@ def test_invalid_log_level_is_rejected(
         Settings(_env_file=None)
 
 
-def test_api_authentication_can_be_disabled_without_key() -> None:
+def test_auth_session_defaults_are_safe() -> None:
     settings = Settings(
         _env_file=None,
         deepseek_api_key="test-deepseek-key",
-        api_auth_enabled=False,
-        lifepilot_api_key=None,
     )
 
-    assert settings.api_auth_enabled is False
-    assert settings.lifepilot_api_key is None
+    assert settings.auth_session_ttl_hours == 168
+    assert settings.auth_session_touch_interval_seconds == 300
+    assert settings.auth_login_max_failures == 5
+    assert settings.local_cli_owner_id == "local-user"
 
 
-def test_api_authentication_requires_api_key() -> None:
-    with pytest.raises(
-        ValidationError,
-        match="LIFEPILOT_API_KEY",
-    ):
+def test_auth_session_ttl_is_bounded() -> None:
+    with pytest.raises(ValidationError):
         Settings(
             _env_file=None,
             deepseek_api_key="test-deepseek-key",
-            api_auth_enabled=True,
-            lifepilot_api_key=None,
+            auth_session_ttl_hours=0,
         )
 
 
-def test_lifepilot_api_key_is_masked() -> None:
+def test_login_failure_limit_is_bounded() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            deepseek_api_key="test-deepseek-key",
+            auth_login_max_failures=0,
+        )
+
+
+def test_unknown_legacy_api_key_settings_are_ignored() -> None:
     settings = Settings(
         _env_file=None,
         deepseek_api_key="test-deepseek-key",
@@ -96,4 +101,5 @@ def test_lifepilot_api_key_is_masked() -> None:
         lifepilot_api_key="secret-lifepilot-key",
     )
 
+    assert not hasattr(settings, "lifepilot_api_key")
     assert "secret-lifepilot-key" not in repr(settings)

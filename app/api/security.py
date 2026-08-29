@@ -1,59 +1,57 @@
-"""提供 LifePilot HTTP API 密钥认证。"""
+"""提供基于不透明 Session Token 的用户认证。"""
 
-import secrets
 from typing import Annotated
 
-from fastapi import HTTPException, Request, Security, status
-from fastapi.security import APIKeyHeader
-from pydantic import SecretStr
+from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-api_key_header = APIKeyHeader(
-    name="X-API-Key",
-    scheme_name="LifePilotApiKey",
-    description="LifePilot API access key",
+from app.auth.models import Principal
+from app.auth.service import AuthService
+
+bearer_scheme = HTTPBearer(
+    scheme_name="LifePilotSession",
+    description="登录接口签发的不透明 Session Token",
     auto_error=False,
 )
 
 
-def _get_secret_value(value: SecretStr | str | None) -> str:
-    """读取 Pydantic 密钥或普通字符串，并清理空白。"""
-    if isinstance(value, SecretStr):
-        return value.get_secret_value().strip()
-
-    if isinstance(value, str):
-        return value.strip()
-
-    return ""
-
-
-async def require_api_key(
+def require_current_user(
     request: Request,
-    provided_api_key: Annotated[
-        str | None,
-        Security(api_key_header),
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(bearer_scheme),
     ],
-) -> None:
-    """在应用启用认证时验证客户端提供的 API 密钥。"""
-    settings = getattr(request.app.state, "settings", None)
-    auth_enabled = getattr(settings, "api_auth_enabled", False)
-
-    if not auth_enabled:
-        return
-
-    configured_api_key = _get_secret_value(getattr(settings, "lifepilot_api_key", None))
-
-    if not configured_api_key:
+) -> Principal:
+    """验证 Session，并返回服务端可信用户身份。"""
+    auth_service: AuthService | None = getattr(
+        request.app.state,
+        "auth_service",
+        None,
+    )
+    if auth_service is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="API authentication is not configured correctly",
+            detail="认证服务不可用。",
         )
 
-    if provided_api_key is None or not secrets.compare_digest(
-        provided_api_key,
-        configured_api_key,
-    ):
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-            headers={"WWW-Authenticate": "APIKey"},
+            detail="请先登录。",
+            headers={"WWW-Authenticate": "Bearer"},
         )
+
+    principal = auth_service.authenticate(credentials.credentials)
+    if principal is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态无效或已经过期。",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return principal
+
+
+CurrentUser = Annotated[
+    Principal,
+    Depends(require_current_user),
+]

@@ -2,28 +2,34 @@
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
 
-from fastapi import FastAPI, Security
+from fastapi import Depends, FastAPI
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from swagger_ui_bundle import swagger_ui_path  # type: ignore[import-untyped]
 
+from app.api.auth_routes import router as auth_router
 from app.api.conversation_routes import router as conversation_router
 from app.api.health_routes import router as health_router
 from app.api.knowledge_routes import router as knowledge_router
 from app.api.middleware import RequestContextMiddleware
 from app.api.rate_limit import SlidingWindowRateLimitMiddleware
 from app.api.routes import router as chat_router
-from app.api.security import require_api_key
+from app.api.security import require_current_user
+from app.auth.rate_limit import LoginRateLimiter
+from app.auth.service import AuthService
 from app.checkpointing import open_sqlite_checkpointer
 from app.config import Settings, apply_runtime_environment, get_settings
 from app.graph import build_graph
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.logging_config import configure_logging, shutdown_logging
 from app.observability import configure_observability
+from app.repositories.audit_repository import AuditRepository
+from app.repositories.auth_repository import AuthRepository
 from app.repositories.conversation_repository import ConversationRepository
 
 
@@ -32,6 +38,9 @@ def create_app(
     knowledge_service: KnowledgeBaseService | None = None,
     settings: Settings | None = None,
     conversation_repository: ConversationRepository | None = None,
+    auth_service: AuthService | None = None,
+    audit_repository: AuditRepository | None = None,
+    login_rate_limiter: LoginRateLimiter | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
 
@@ -46,6 +55,15 @@ def create_app(
             application.state.settings = settings
             application.state.knowledge_service = knowledge_service
             application.state.conversation_repository = active_conversation_repository
+            application.state.auth_service = auth_service
+            application.state.audit_repository = audit_repository
+            application.state.login_rate_limiter = (
+                login_rate_limiter
+                or LoginRateLimiter(
+                    max_failures=5,
+                    window_seconds=900,
+                )
+            )
 
             application.state.checkpointer = getattr(agent_graph, "checkpointer", None)
 
@@ -61,6 +79,27 @@ def create_app(
         configure_observability(active_settings)
 
         try:
+            active_auth_repository = AuthRepository(active_settings.app_database_path)
+
+            active_auth_service = auth_service or AuthService(
+                repository=active_auth_repository,
+                session_ttl_hours=active_settings.auth_session_ttl_hours,
+                touch_interval_seconds=(
+                    active_settings.auth_session_touch_interval_seconds
+                ),
+            )
+
+            active_audit_repository = audit_repository or AuditRepository(
+                active_settings.app_database_path
+            )
+
+            active_login_rate_limiter = login_rate_limiter or LoginRateLimiter(
+                max_failures=active_settings.auth_login_max_failures,
+                window_seconds=active_settings.auth_login_window_seconds,
+            )
+
+            active_auth_repository.delete_expired_sessions(datetime.now(UTC))
+
             if active_conversation_repository is None:
                 active_conversation_repository = ConversationRepository(
                     active_settings.app_database_path
@@ -78,7 +117,6 @@ def create_app(
                     settings=active_settings,
                     checkpointer=active_checkpointer,
                     knowledge_service=active_knowledge_service,
-                    owner_id=active_settings.owner_id,
                 )
 
                 application.state.settings = active_settings
@@ -89,6 +127,9 @@ def create_app(
                 application.state.checkpointer = active_checkpointer
                 application.state.agent_graph = graph
                 application.state.graph_lock = Lock()
+                application.state.auth_service = active_auth_service
+                application.state.audit_repository = active_audit_repository
+                application.state.login_rate_limiter = active_login_rate_limiter
 
                 yield
 
@@ -133,7 +174,13 @@ def create_app(
         tags=["System"],
     )
 
-    protected_dependencies = [Security(require_api_key)]
+    application.include_router(
+        auth_router,
+        prefix="/api/v1",
+        tags=["Authentication"],
+    )
+
+    protected_dependencies = [Depends(require_current_user)]
 
     application.include_router(
         chat_router,

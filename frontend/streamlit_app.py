@@ -2,6 +2,7 @@
 
 import os
 import sys
+from contextlib import suppress
 from pathlib import Path
 from uuid import uuid4
 
@@ -23,7 +24,6 @@ from app.clients import (  # noqa: E402
 load_dotenv(PROJECT_ROOT / ".env")
 
 API_BASE_URL = (os.getenv("LIFEPILOT_API_URL") or "http://127.0.0.1:8000").rstrip("/")
-LIFEPILOT_API_KEY = os.getenv("LIFEPILOT_API_KEY")
 
 
 st.set_page_config(
@@ -51,6 +51,21 @@ def initialize_session_state() -> None:
     if "pending_approval" not in st.session_state:
         st.session_state.pending_approval = None
 
+    if "access_token" not in st.session_state:
+        st.session_state.access_token = None
+
+    if "current_user" not in st.session_state:
+        st.session_state.current_user = None
+
+
+def clear_authenticated_state() -> None:
+    """清除当前 Streamlit 会话中的登录和聊天状态。"""
+    st.session_state.access_token = None
+    st.session_state.current_user = None
+    st.session_state.thread_id = create_thread_id()
+    st.session_state.messages = []
+    st.session_state.pending_approval = None
+
 
 @st.cache_data(
     ttl=5,
@@ -68,16 +83,77 @@ def check_backend_health(
 
 initialize_session_state()
 
+backend_available = check_backend_health(API_BASE_URL)
+
+if not st.session_state.access_token:
+    st.title("🧭 LifePilot")
+    st.caption("请登录后使用你的个人助理")
+
+    with st.form("login-form", clear_on_submit=False):
+        username = st.text_input(
+            "用户名",
+            max_chars=64,
+            autocomplete="username",
+        )
+        password = st.text_input(
+            "密码",
+            type="password",
+            max_chars=1024,
+            autocomplete="current-password",
+        )
+        login_clicked = st.form_submit_button(
+            "登录",
+            type="primary",
+            use_container_width=True,
+            disabled=not backend_available,
+        )
+
+    if not backend_available:
+        st.error("后端服务未连接，请先启动 FastAPI。")
+
+    if login_clicked:
+        try:
+            anonymous_client = LifePilotApiClient(base_url=API_BASE_URL)
+            login_result = anonymous_client.login(username, password)
+            st.session_state.access_token = login_result["access_token"]
+            st.session_state.current_user = login_result["user"]
+            st.rerun()
+        except (KeyError, LifePilotApiError) as error:
+            st.error(str(error))
+
+    st.stop()
+
+
 client = LifePilotApiClient(
     base_url=API_BASE_URL,
-    api_key=LIFEPILOT_API_KEY,
+    access_token=st.session_state.access_token,
 )
 
-backend_available = check_backend_health(API_BASE_URL)
+if st.session_state.current_user is None:
+    try:
+        st.session_state.current_user = client.get_current_user()
+    except LifePilotApiError:
+        clear_authenticated_state()
+        st.rerun()
 
 
 with st.sidebar:
     st.header("🧭 LifePilot")
+
+    current_user = st.session_state.current_user
+    st.caption("当前账号")
+    st.write(f"👤 {current_user['username']}")
+
+    if st.button(
+        "退出登录",
+        use_container_width=True,
+    ):
+        with suppress(LifePilotApiError):
+            client.logout()
+        clear_authenticated_state()
+        st.rerun()
+
+    st.divider()
 
     if backend_available:
         st.success("后端服务正常")

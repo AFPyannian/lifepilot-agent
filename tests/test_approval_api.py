@@ -3,11 +3,11 @@
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
 
 from app.api.server import create_app
+from tests.helpers import AuthenticatedTestClient as TestClient
 
 
 class FakeApprovalGraph:
@@ -50,6 +50,7 @@ class FakeApprovalGraph:
         self,
         command: Command,
         config: dict[str, Any],
+        context: Any | None = None,
     ) -> dict[str, Any]:
         assert isinstance(
             command,
@@ -93,7 +94,8 @@ def test_resume_approved_operation() -> None:
     assert graph.pending is False
 
     assert graph.last_config["configurable"] == {
-        "thread_id": "approval-test",
+        "thread_id": "user:owner-1:thread:approval-test",
+        "user_id": "owner-1",
     }
 
     assert graph.last_config["run_name"] == "lifepilot_resume_approval"

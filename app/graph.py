@@ -12,10 +12,12 @@ from langgraph.graph import START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
+from langgraph.runtime import Runtime
 from typing_extensions import TypedDict
 
 from app.config import Settings, get_settings
 from app.exceptions import LifePilotError, ModelServiceError
+from app.identity import AgentContext
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.memory_context import build_user_memory_context
 from app.model import create_model
@@ -198,8 +200,12 @@ def build_graph(
     note_repository: NoteRepository | None = None,
     memory_repository: UserMemoryRepository | None = None,
     knowledge_service: KnowledgeBaseService | None = None,
-    owner_id: str = "local-user",
-) -> CompiledStateGraph:
+) -> CompiledStateGraph[
+    AssistantState,
+    AgentContext,
+    AssistantState,
+    AssistantState,
+]:
     """组装模型、仓储、工具和 Checkpointer，返回可执行 Agent 图。"""
 
     active_settings = settings
@@ -235,21 +241,16 @@ def build_graph(
         else UserMemoryRepository(require_settings().app_database_path)
     )
 
-    active_owner_id = owner_id if owner_id is not None else require_settings().owner_id
-
     todo_tools = create_todo_tools(
         repository=active_todo_repository,
-        owner_id=active_owner_id,
     )
 
     note_tools = create_note_tools(
         repository=active_note_repository,
-        owner_id=active_owner_id,
     )
 
     memory_tools = create_memory_tools(
         repository=active_memory_repository,
-        owner_id=active_owner_id,
     )
 
     active_knowledge_service = knowledge_service
@@ -262,7 +263,6 @@ def build_graph(
     if active_knowledge_service is not None:
         knowledge_tools = create_knowledge_tools(
             service=active_knowledge_service,
-            owner_id=active_owner_id,
         )
 
     all_tools = [
@@ -274,12 +274,15 @@ def build_graph(
 
     model_with_tools = active_model.bind_tools(all_tools)
 
-    def assistant_node(state: AssistantState) -> dict:
+    def assistant_node(
+        state: AssistantState,
+        runtime: Runtime[AgentContext],
+    ) -> dict:
         """注入用户记忆并调用已绑定工具的模型。"""
 
         memory_context = build_user_memory_context(
             repository=active_memory_repository,
-            owner_id=active_owner_id,
+            owner_id=runtime.context.user_id,
             memory_limit=20,
         )
 
@@ -301,7 +304,10 @@ def build_graph(
 
         return {"messages": [response]}
 
-    builder = StateGraph(AssistantState)
+    builder = StateGraph(
+        AssistantState,
+        context_schema=AgentContext,
+    )
 
     builder.add_node(
         "assistant",

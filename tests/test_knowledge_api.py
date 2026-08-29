@@ -3,9 +3,8 @@
 from types import SimpleNamespace
 from urllib.parse import quote
 
-from fastapi.testclient import TestClient
-
 from app.api.server import create_app
+from tests.helpers import AuthenticatedTestClient as TestClient
 
 
 class FakeKnowledgeService:
@@ -19,7 +18,7 @@ class FakeKnowledgeService:
         owner_id: str,
         filename: str,
     ) -> SimpleNamespace:
-        assert owner_id == "test-user"
+        assert owner_id == "owner-1"
 
         self.ingested_filename = filename
 
@@ -33,7 +32,7 @@ class FakeKnowledgeService:
         self,
         owner_id: str,
     ) -> list[SimpleNamespace]:
-        assert owner_id == "test-user"
+        assert owner_id == "owner-1"
 
         return [
             SimpleNamespace(
@@ -47,7 +46,7 @@ class FakeKnowledgeService:
         owner_id: str,
         filename: str,
     ) -> bool:
-        assert owner_id == "test-user"
+        assert owner_id == "owner-1"
 
         self.deleted_filename = filename
         return True
@@ -59,7 +58,6 @@ def create_test_app(
     max_file_bytes: int = 1000,
 ):
     settings = SimpleNamespace(
-        owner_id="test-user",
         knowledge_source_directory=tmp_path,
         knowledge_max_file_bytes=(max_file_bytes),
     )
@@ -103,7 +101,9 @@ def test_upload_knowledge_document(
 
     assert service.ingested_filename == "学习资料.md"
 
-    assert (tmp_path / "学习资料.md").read_bytes() == (b"# Agent\nTest content")
+    assert (tmp_path / "owner-1" / "学习资料.md").read_bytes() == (
+        b"# Agent\nTest content"
+    )
 
 
 def test_upload_rejects_unsupported_file(
@@ -129,7 +129,7 @@ def test_upload_rejects_unsupported_file(
         )
 
     assert response.status_code == 400
-    assert not (tmp_path / "program.exe").exists()
+    assert not (tmp_path / "owner-1" / "program.exe").exists()
 
 
 def test_upload_rejects_oversized_file(
@@ -156,7 +156,7 @@ def test_upload_rejects_oversized_file(
         )
 
     assert response.status_code == 400
-    assert not (tmp_path / "large.md").exists()
+    assert not (tmp_path / "owner-1" / "large.md").exists()
 
 
 def test_list_knowledge_documents(
@@ -189,7 +189,9 @@ def test_delete_knowledge_document(
 ) -> None:
     filename = "学习资料.md"
 
-    source_path = tmp_path / filename
+    user_directory = tmp_path / "owner-1"
+    user_directory.mkdir()
+    source_path = user_directory / filename
     source_path.write_text(
         "test",
         encoding="utf-8",

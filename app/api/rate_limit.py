@@ -11,7 +11,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 class SlidingWindowRateLimitMiddleware:
-    """按照 API 密钥或客户端地址限制业务接口请求频率。"""
+    """按照 Session Token 摘要或客户端地址限制业务接口请求。"""
 
     def __init__(self, app: ASGIApp) -> None:
         """保存下游应用并初始化进程内请求窗口。"""
@@ -77,16 +77,18 @@ class SlidingWindowRateLimitMiddleware:
 
     @staticmethod
     def _get_identifier(scope: Scope) -> str:
-        """优先根据 API 密钥摘要识别调用方，否则使用客户端地址。"""
+        """优先根据 Bearer Token 摘要识别调用方，否则使用客户端地址。"""
         headers = {
             key.decode("latin-1").lower(): value.decode("latin-1")
             for key, value in scope.get("headers", [])
         }
-        api_key = headers.get("x-api-key", "").strip()
+        authorization = headers.get("authorization", "").strip()
 
-        if api_key:
-            digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-            return f"api-key:{digest}"
+        if authorization.lower().startswith("bearer "):
+            token = authorization[7:].strip()
+            if token:
+                digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                return f"session:{digest}"
 
         client = scope.get("client")
         client_host = client[0] if client else "unknown"

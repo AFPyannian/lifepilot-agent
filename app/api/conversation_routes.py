@@ -15,6 +15,7 @@ from langchain_core.messages import (
     HumanMessage,
 )
 
+from app.api.audit import record_audit_event
 from app.api.interrupts import (
     find_pending_interrupt,
     normalize_approval_request,
@@ -27,6 +28,8 @@ from app.api.schemas import (
     DeleteConversationResponse,
     RenameConversationRequest,
 )
+from app.api.security import CurrentUser
+from app.identity import checkpoint_config, checkpoint_thread_id
 
 router = APIRouter()
 
@@ -47,17 +50,17 @@ ThreadIdPath = Annotated[
 )
 def list_conversations(
     request: Request,
+    current_user: CurrentUser,
 ) -> ConversationListResponse:
     """返回当前用户的历史会话摘要。"""
     (
         repository,
-        settings,
         _graph,
         _graph_lock,
     ) = _get_dependencies(request)
 
     conversations = repository.list_conversations(
-        owner_id=settings.owner_id,
+        owner_id=current_user.user_id,
     )
 
     return ConversationListResponse(
@@ -81,17 +84,17 @@ def list_conversations(
 def get_conversation(
     thread_id: ThreadIdPath,
     request: Request,
+    current_user: CurrentUser,
 ) -> ConversationDetailResponse:
     """返回会话消息和待处理审批状态。"""
     (
         repository,
-        settings,
         graph,
         graph_lock,
     ) = _get_dependencies(request)
 
     conversation = repository.get(
-        owner_id=settings.owner_id,
+        owner_id=current_user.user_id,
         thread_id=thread_id,
     )
 
@@ -101,11 +104,10 @@ def get_conversation(
             detail="会话不存在。",
         )
 
-    config = {
-        "configurable": {
-            "thread_id": thread_id,
-        }
-    }
+    config = checkpoint_config(
+        current_user.user_id,
+        thread_id,
+    )
 
     with graph_lock:
         snapshot = graph.get_state(config)
@@ -146,17 +148,17 @@ def rename_conversation(
     thread_id: ThreadIdPath,
     payload: RenameConversationRequest,
     request: Request,
+    current_user: CurrentUser,
 ) -> ConversationSummary:
     """修改当前用户拥有的会话标题。"""
     (
         repository,
-        settings,
         _graph,
         _graph_lock,
     ) = _get_dependencies(request)
 
     renamed = repository.rename(
-        owner_id=settings.owner_id,
+        owner_id=current_user.user_id,
         thread_id=thread_id,
         title=payload.title,
     )
@@ -168,7 +170,7 @@ def rename_conversation(
         )
 
     conversation = repository.get(
-        owner_id=settings.owner_id,
+        owner_id=current_user.user_id,
         thread_id=thread_id,
     )
 
@@ -177,6 +179,15 @@ def rename_conversation(
             status_code=(status.HTTP_404_NOT_FOUND),
             detail="会话不存在。",
         )
+
+    record_audit_event(
+        request,
+        user_id=current_user.user_id,
+        action="conversation.rename",
+        resource_type="conversation",
+        resource_id=thread_id,
+        outcome="success",
+    )
 
     return ConversationSummary(
         thread_id=conversation.thread_id,
@@ -194,17 +205,17 @@ def rename_conversation(
 def delete_conversation(
     thread_id: ThreadIdPath,
     request: Request,
+    current_user: CurrentUser,
 ) -> DeleteConversationResponse:
     """删除当前用户拥有的会话元数据及全部 Checkpoint。"""
     (
         repository,
-        settings,
         _graph,
         graph_lock,
     ) = _get_dependencies(request)
 
     conversation = repository.get(
-        owner_id=settings.owner_id,
+        owner_id=current_user.user_id,
         thread_id=thread_id,
     )
 
@@ -227,12 +238,26 @@ def delete_conversation(
         )
 
     with graph_lock:
-        checkpointer.delete_thread(thread_id)
+        checkpointer.delete_thread(
+            checkpoint_thread_id(
+                current_user.user_id,
+                thread_id,
+            )
+        )
 
         metadata_deleted = repository.delete(
-            owner_id=(settings.owner_id),
+            owner_id=current_user.user_id,
             thread_id=thread_id,
         )
+
+    record_audit_event(
+        request,
+        user_id=current_user.user_id,
+        action="conversation.delete",
+        resource_type="conversation",
+        resource_id=thread_id,
+        outcome="success" if metadata_deleted else "not_found",
+    )
 
     return DeleteConversationResponse(
         thread_id=thread_id,
@@ -242,17 +267,11 @@ def delete_conversation(
 
 def _get_dependencies(
     request: Request,
-) -> tuple[Any, Any, Any, Any]:
+) -> tuple[Any, Any, Any]:
     """读取会话接口依赖，并在未初始化时返回服务不可用错误。"""
     repository = getattr(
         request.app.state,
         "conversation_repository",
-        None,
-    )
-
-    settings = getattr(
-        request.app.state,
-        "settings",
         None,
     )
 
@@ -268,7 +287,7 @@ def _get_dependencies(
         None,
     )
 
-    if repository is None or settings is None or graph is None or graph_lock is None:
+    if repository is None or graph is None or graph_lock is None:
         raise HTTPException(
             status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
             detail=("会话管理服务不可用。"),
@@ -276,7 +295,6 @@ def _get_dependencies(
 
     return (
         repository,
-        settings,
         graph,
         graph_lock,
     )

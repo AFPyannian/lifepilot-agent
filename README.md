@@ -2,7 +2,7 @@
 
 [![Quality](https://github.com/AFPyannian/lifepilot-agent/actions/workflows/quality.yml/badge.svg)](https://github.com/AFPyannian/lifepilot-agent/actions/workflows/quality.yml)
 
-一个面向个人本地使用的中文生活管理 Agent。项目基于 LangGraph、FastAPI、Streamlit、DeepSeek 和 RAG 构建，支持多轮会话、待办与笔记管理、长期记忆、个人知识库、流式响应，以及敏感删除操作的人工审批。
+一个支持本地多账号使用的中文生活管理 Agent。项目基于 LangGraph、FastAPI、Streamlit、DeepSeek 和 RAG 构建，支持多轮会话、待办与笔记管理、长期记忆、个人知识库、流式响应，以及敏感删除操作的人工审批。
 
 该仓库不仅展示 Agent 功能，也完整覆盖状态持久化、错误处理、可观测性、安全边界、自动化测试和代码质量工程。
 
@@ -14,11 +14,12 @@
 | 工具调用 | 待办、笔记、用户资料、长期记忆和知识库工具 |
 | 人工审批 | 删除类敏感操作通过 interrupt/resume 暂停并恢复 |
 | 短期记忆 | LangGraph SQLite Checkpointer 按会话保存状态 |
-| 长期记忆 | SQLite 按 owner ID 隔离用户资料与记忆 |
+| 账号与隔离 | Argon2id 密码、可撤销 Session、用户状态和端到端数据隔离 |
+| 长期记忆 | SQLite 按登录用户 UUID 隔离用户资料与记忆 |
 | RAG | 本地 BGE 中文 Embedding、Chroma 和文档召回 |
 | API | FastAPI、SSE 流式响应、会话及知识库管理接口 |
 | Web 界面 | Streamlit 聊天、会话、知识库和审批交互 |
-| 安全 | API Key、滑动窗口限流、敏感信息脱敏和安全响应头 |
+| 安全 | Bearer Session、登录防爆破、审计日志、限流和安全响应头 |
 | 可观测性 | 结构化日志、Request ID、可选 LangSmith 追踪 |
 | 工程质量 | pytest、branch coverage、Ruff、mypy、pre-commit 和 CI |
 
@@ -28,7 +29,7 @@
 flowchart TD
     UI[Streamlit Web UI] --> CLIENT[LifePilot API Client]
     CLIENT --> API[FastAPI API]
-    API --> SECURITY[API Key / Rate Limit / Request Context]
+    API --> SECURITY[Account Session / Rate Limit / Request Context]
     SECURITY --> GRAPH[LangGraph Agent]
 
     GRAPH --> MODEL[DeepSeek Chat Model]
@@ -101,6 +102,7 @@ sequenceDiagram
 lifepilot-agent/
 ├── app/
 │   ├── api/                 # FastAPI 路由、中间件、认证和流式响应
+│   ├── auth/                # 密码哈希、Session 服务和登录限流
 │   ├── clients/             # Streamlit 使用的后端 API 客户端
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
 │   ├── repositories/        # SQLite 数据访问层
@@ -163,20 +165,27 @@ Copy-Item .env.example .env
 DEEPSEEK_API_KEY=your-deepseek-api-key
 ```
 
-如需保护本地业务接口，可生成共享 API Key：
+业务接口始终要求账号 Session。首次启动前创建管理员账号，密码会在终端中隐藏输入：
 
 ```powershell
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+python -m scripts.user_admin create --username admin --role admin
 ```
 
-然后配置：
+项目不开放公共注册。后续可使用同一命令创建普通用户，并通过管理命令禁用账号或重置密码：
 
-```env
-API_AUTH_ENABLED=true
-LIFEPILOT_API_KEY=生成的随机字符串
+```powershell
+python -m scripts.user_admin create --username alice --role user
+python -m scripts.user_admin status --username alice --status disabled
+python -m scripts.user_admin reset-password --username alice
 ```
 
-Streamlit 与后端读取同一个 `.env`，因此会自动携带该密钥。完整配置见 [配置说明](docs/configuration.md)。
+Streamlit 登录后只在当前浏览器 Session 中保存访问令牌。完整配置见 [配置说明](docs/configuration.md)。
+
+从 `v1.0.0` 升级且需要保留原 `local-user` 数据时，请先停止后端、创建目标账号，再运行离线迁移。脚本会先备份数据库、知识文件和 Chroma：
+
+```powershell
+python -m scripts.migrate_local_user --username admin --confirm
+```
 
 ### 5. 启动后端
 
@@ -209,10 +218,10 @@ python -m app.main
 本项目默认在本地保存运行数据：
 
 ```text
-data/lifepilot.db       # 待办、笔记、会话、用户资料和长期记忆
+data/lifepilot.db       # 账号、Session、审计事件及全部业务数据
 data/checkpoints.db     # LangGraph 会话执行状态
 data/chroma/            # 知识库向量索引
-knowledge_base/         # 本地知识文档
+knowledge_base/<用户UUID>/ # 按用户隔离的本地知识文档
 logs/lifepilot.log      # 应用日志
 ```
 
@@ -283,26 +292,30 @@ python -m evaluations.run_agent_eval --case add_todo
 ## API 安全边界
 
 - `/api/v1/health`、`/api/v1/ready` 和 `/docs` 保持公开。
-- 聊天、知识库和会话管理接口可通过 `X-API-Key` 保护。
-- 内存限流器按 API Key 摘要或客户端 IP 计数。
-- API Key 只适合受信任的本地或 HTTPS 环境。
+- `/api/v1/auth/login` 公开，其余账号与业务接口要求 `Authorization: Bearer <session-token>`。
+- 密码使用 Argon2id 哈希；数据库只保存 Session 令牌的 SHA-256 摘要。
+- 账号禁用、退出全部设备和修改密码会撤销相应 Session。
+- 登录失败按客户端 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
+- 用户身份只由服务端认证结果注入；待办、笔记、记忆、会话、Checkpoint、知识文件和向量元数据均按用户 UUID 隔离。
+- 账号、登录、密码和主要写操作记录审计事件。
 - 当前限流状态不跨进程共享，服务重启后会清空。
 
 ## 项目定位与限制
 
-LifePilot Agent 是面向个人本地使用的工程化作品，不是多租户 SaaS。当前版本有意保持以下边界：
+LifePilot Agent 是支持多个本地账号的工程化作品，不是面向公网的分布式 SaaS。当前版本有意保持以下边界：
 
 - 使用 SQLite 和本地 Chroma，不支持多实例共享状态。
-- 使用单个共享 API Key，不提供用户注册、OAuth 或角色权限。
+- 不提供公开注册、OAuth、细粒度 RBAC 或账号管理 Web 页面；账号由本机管理员通过 CLI 管理。
 - 限流器位于进程内，不适用于分布式部署。
-- 知识库文件和长期记忆由本地使用者自行管理及备份。
+- Session 是数据库中的不透明令牌；公网部署仍必须使用 HTTPS。
+- 知识库文件和长期记忆由本地管理员自行管理及备份。
 - CI 只运行离线自动化测试，不调用真实 DeepSeek API。
 
 这些取舍及后续扩展方向见 [关键设计决策](docs/design-decisions.md)。
 
 ## 版本
 
-当前版本：`v1.0.0`
+最近发布版本：`v1.0.0`；`main` 已进入多账号版本开发。
 
 版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 

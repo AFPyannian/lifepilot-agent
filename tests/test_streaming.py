@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 from typing import Any
 
-from fastapi.testclient import TestClient
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -13,6 +12,7 @@ from app.api.server import create_app
 from app.api.streaming import (
     create_sse_event,
 )
+from tests.helpers import AuthenticatedTestClient as TestClient
 
 
 class FakeStreamingGraph:
@@ -45,6 +45,7 @@ class FakeStreamingGraph:
         self,
         input_data: dict[str, Any] | None,
         config: dict[str, Any],
+        context: Any | None = None,
     ) -> dict[str, Any]:
         if input_data is None:
             self.pending = False
@@ -58,6 +59,7 @@ class FakeStreamingGraph:
         self,
         input_data: dict[str, Any],
         config: dict[str, Any],
+        context: Any | None = None,
         *,
         stream_mode: str,
         version: str,

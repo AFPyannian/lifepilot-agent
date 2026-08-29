@@ -2,7 +2,7 @@
 
 ## 1. 设计目标
 
-LifePilot Agent 面向单个可信用户的本地运行场景，目标是在保持部署简单的同时，展示一个可测试、可恢复、具备明确安全边界的 Agent 应用。系统采用模块化单体架构：Web UI、HTTP API、Agent 编排、工具和数据访问层位于同一仓库，但通过接口和依赖注入保持职责分离。
+LifePilot Agent 面向一台可信本地主机上的多个账号，目标是在保持部署简单的同时，展示一个可测试、可恢复、具备明确身份与数据边界的 Agent 应用。系统采用模块化单体架构：Web UI、HTTP API、Agent 编排、工具和数据访问层位于同一仓库，但通过接口和依赖注入保持职责分离。
 
 ## 2. 总体架构
 
@@ -17,7 +17,7 @@ flowchart LR
         CLIENT[API Client]
         API[FastAPI]
         CTX[Request Context]
-        AUTH[API Key]
+        AUTH[Account / Session]
         LIMIT[Rate Limiter]
     end
 
@@ -40,7 +40,7 @@ flowchart LR
 
     UI --> CLIENT --> API
     CLI --> GRAPH
-    API --> CTX --> LIMIT --> AUTH --> GRAPH
+    API --> CTX --> AUTH --> LIMIT --> GRAPH
     GRAPH <--> MODEL
     GRAPH <--> TOOLNODE
     TOOLNODE --> APPROVAL
@@ -66,7 +66,7 @@ flowchart LR
 1. 加载并校验 Settings。
 2. 初始化日志和可选 LangSmith 追踪。
 3. 打开 SQLite Checkpointer。
-4. 初始化会话仓储和知识库服务。
+4. 初始化账号、Session、审计、会话仓储和知识库服务。
 5. 构建 LangGraph。
 6. 将依赖保存到 `application.state`。
 7. 应用结束时关闭日志和资源。
@@ -75,6 +75,7 @@ API 按职责拆分：
 
 | 模块 | 职责 |
 | --- | --- |
+| `auth_routes.py` | 登录、当前用户、退出和修改密码 |
 | `routes.py` | 普通聊天、流式聊天、审批恢复 |
 | `conversation_routes.py` | 会话列表、详情、重命名和删除 |
 | `knowledge_routes.py` | 知识文档上传、列表和删除 |
@@ -98,7 +99,7 @@ stateDiagram-v2
 
 assistant 节点在每次模型调用前：
 
-1. 读取当前 owner 的长期记忆上下文。
+1. 读取当前认证用户的长期记忆上下文。
 2. 清理中断产生的不完整工具调用序列。
 3. 注入系统规则与长期记忆。
 4. 调用已经绑定工具的模型。
@@ -116,7 +117,7 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 | Memory | 用户资料、长期事实、查询和遗忘 | SQLite 应用数据库 |
 | Knowledge | 导入、检索、列表、删除文档 | 本地文件和 Chroma |
 
-所有业务数据按 `owner_id` 隔离。当前 UI 面向一个本地用户，但数据层仍保留用户作用域，便于测试隔离和后续扩展。
+所有业务数据按认证用户 UUID（数据库字段名为 `owner_id`）隔离。身份由 API 认证依赖写入 LangGraph context 和工具的受信任运行配置，模型可见参数中不存在 `owner_id`，因此模型或客户端不能切换数据作用域。
 
 ## 4. 状态与持久化
 
@@ -124,13 +125,14 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 
 | 状态 | 存储 | 作用域 |
 | --- | --- | --- |
-| LangGraph 消息与执行位置 | `data/checkpoints.db` | thread ID |
-| 会话索引和消息记录 | `data/lifepilot.db` | owner ID + thread ID |
-| 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | owner ID |
-| 知识文档 | `knowledge_base/` | 本地项目实例 |
-| 向量索引 | `data/chroma/` | owner ID + source |
+| 账号、Session 和审计事件 | `data/lifepilot.db` | 用户 UUID / Session 摘要 |
+| LangGraph 消息与执行位置 | `data/checkpoints.db` | 用户 UUID + 公开 thread ID |
+| 会话索引和消息记录 | `data/lifepilot.db` | 用户 UUID + thread ID |
+| 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | 用户 UUID |
+| 知识文档 | `knowledge_base/<用户UUID>/` | 用户 UUID + 文件名 |
+| 向量索引 | `data/chroma/` | 用户 UUID + source |
 
-Checkpoint 使进程重启后仍能恢复会话状态；会话仓储为 UI 提供独立于 LangGraph 内部状态的列表、标题和消息查询能力。
+Checkpoint 使进程重启后仍能恢复会话状态。对外 thread ID 进入 Checkpointer 前会转换为 `user:<UUID>:thread:<thread ID>`，避免两个用户选择相同 thread ID 时读取彼此状态；会话仓储同时以用户 UUID 和公开 thread ID 查询。
 
 ## 5. 人工审批流程
 
@@ -181,8 +183,11 @@ flowchart LR
 - Pydantic Settings 在启动时校验必填密钥和关联配置。
 - SecretStr 避免密钥出现在对象表示中。
 - 密钥配置使用 SecretStr，配置对象表示不会暴露原始值。
-- 可选 `X-API-Key` 保护业务路由。
-- 滑动窗口限流按密钥摘要或 IP 计数，不保存原始密钥。
+- 密码使用 Argon2id 哈希，登录签发可撤销的不透明 Session；数据库只保存令牌摘要。
+- 账号状态在每次认证时校验，禁用账号、修改密码或退出全部设备会撤销 Session。
+- 认证后的用户 UUID 由服务端注入所有业务数据访问路径。
+- 登录失败按 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
+- 账号和主要写操作保存审计事件，不记录原始密码或 Session 令牌。
 - Request ID 贯穿请求日志和响应。
 - DeepSeek 调用有超时和有限重试。
 - LangGraph `recursion_limit` 防止异常工具循环无限执行。
@@ -192,7 +197,7 @@ flowchart LR
 
 ## 8. 并发模型
 
-应用通过进程内 Lock 保护同一个 graph 实例的关键执行路径。SQLite、Chroma、内存限流器和 Lock 都基于单进程假设，因此当前版本适合个人本地单实例运行，不适合直接扩展为多 Worker 或多实例服务。
+应用通过进程内 Lock 保护同一个 graph 实例的关键执行路径。SQLite、Chroma、内存限流器和 Lock 都基于单进程假设，因此当前版本适合本地多账号、单实例运行，不适合直接扩展为多 Worker 或多实例服务。
 
 如需扩展，应同时处理：
 
@@ -200,7 +205,7 @@ flowchart LR
 - Redis Checkpointer 与分布式锁。
 - Redis 限流。
 - 独立向量数据库。
-- 用户身份与授权模型。
+- 集中式身份服务与细粒度授权模型。
 - 幂等写操作和跨服务追踪。
 
-这些内容不属于当前个人本地版本的范围。
+这些内容不属于当前本地多账号版本的范围。

@@ -41,10 +41,14 @@ def create_tools(
 ):
     tools = create_knowledge_tools(
         service=service,
-        owner_id="test-user",
     )
 
-    return {current_tool.name: current_tool for current_tool in tools}
+    return {
+        current_tool.name: current_tool.with_config(
+            configurable={"user_id": "test-user"}
+        )
+        for current_tool in tools
+    }
 
 
 def test_delete_knowledge_document_approved(

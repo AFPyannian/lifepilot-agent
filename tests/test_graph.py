@@ -7,6 +7,7 @@ from langchain_core.messages import (
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.graph import build_graph
+from app.identity import AgentContext, checkpoint_config
 from app.repositories.note_repository import (
     NoteRepository,
 )
@@ -44,18 +45,13 @@ def build_test_graph(tmp_path):
         todo_repository=TodoRepository(database_path),
         note_repository=NoteRepository(database_path),
         memory_repository=UserMemoryRepository(database_path),
-        owner_id="test-user",
     )
 
 
 def test_graph_returns_ai_response(tmp_path):
     graph = build_test_graph(tmp_path)
 
-    config = {
-        "configurable": {
-            "thread_id": "response-test",
-        }
-    }
+    config = checkpoint_config("test-user", "response-test")
 
     result = graph.invoke(
         {
@@ -64,6 +60,7 @@ def test_graph_returns_ai_response(tmp_path):
             ],
         },
         config=config,
+        context=AgentContext(user_id="test-user"),
     )
 
     assert len(result["messages"]) == 2
@@ -77,11 +74,7 @@ def test_graph_returns_ai_response(tmp_path):
 def test_same_thread_keeps_history(tmp_path):
     graph = build_test_graph(tmp_path)
 
-    config = {
-        "configurable": {
-            "thread_id": "same-thread",
-        }
-    }
+    config = checkpoint_config("test-user", "same-thread")
 
     graph.invoke(
         {
@@ -90,6 +83,7 @@ def test_same_thread_keeps_history(tmp_path):
             ],
         },
         config=config,
+        context=AgentContext(user_id="test-user"),
     )
 
     result = graph.invoke(
@@ -99,6 +93,7 @@ def test_same_thread_keeps_history(tmp_path):
             ],
         },
         config=config,
+        context=AgentContext(user_id="test-user"),
     )
 
     assert len(result["messages"]) == 4
@@ -108,16 +103,8 @@ def test_same_thread_keeps_history(tmp_path):
 def test_different_threads_are_isolated(tmp_path):
     graph = build_test_graph(tmp_path)
 
-    first_config = {
-        "configurable": {
-            "thread_id": "thread-one",
-        }
-    }
-    second_config = {
-        "configurable": {
-            "thread_id": "thread-two",
-        }
-    }
+    first_config = checkpoint_config("test-user", "thread-one")
+    second_config = checkpoint_config("test-user", "thread-two")
 
     graph.invoke(
         {
@@ -126,6 +113,7 @@ def test_different_threads_are_isolated(tmp_path):
             ],
         },
         config=first_config,
+        context=AgentContext(user_id="test-user"),
     )
 
     result = graph.invoke(
@@ -135,6 +123,7 @@ def test_different_threads_are_isolated(tmp_path):
             ],
         },
         config=second_config,
+        context=AgentContext(user_id="test-user"),
     )
 
     assert len(result["messages"]) == 2

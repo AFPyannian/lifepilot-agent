@@ -181,3 +181,49 @@ class DeleteConversationResponse(BaseModel):
 
     thread_id: str
     deleted: bool
+
+
+class LoginRequest(BaseModel):
+    """表示账号密码登录请求。"""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def clean_username(cls, value: Any) -> Any:
+        """清理登录用户名两端空白。"""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CurrentUserResponse(BaseModel):
+    """表示当前登录用户的公开信息。"""
+
+    id: str
+    username: str
+    role: Literal["admin", "user"]
+    status: Literal["active", "disabled"]
+
+
+class LoginResponse(BaseModel):
+    """表示登录成功后签发的 Session。"""
+
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: CurrentUserResponse
+
+
+class LogoutResponse(BaseModel):
+    """表示 Session 注销结果。"""
+
+    revoked: bool
+
+
+class ChangePasswordRequest(BaseModel):
+    """表示修改当前账号密码的请求。"""
+
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)

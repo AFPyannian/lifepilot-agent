@@ -1,8 +1,10 @@
 """创建供 Agent 管理用户笔记的工具。"""
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
+from app.identity import user_id_from_config
 from app.repositories.note_repository import (
     NoteItem,
     NoteRepository,
@@ -23,19 +25,19 @@ def _format_note_summary(
 
 def create_note_tools(
     repository: NoteRepository,
-    owner_id: str,
 ) -> list[BaseTool]:
-    """为指定用户创建笔记工具。"""
+    """创建从可信运行上下文读取用户身份的笔记工具。"""
 
     @tool
     def add_note(
         title: str,
         content: str,
+        config: RunnableConfig,
     ) -> str:
         """创建一条笔记；仅在用户明确要求记录或保存时调用。"""
         try:
             note = repository.add(
-                owner_id=owner_id,
+                owner_id=user_id_from_config(config),
                 title=title,
                 content=content,
             )
@@ -45,9 +47,9 @@ def create_note_tools(
         return f"已创建笔记，ID={note.id}，标题：{note.title}"
 
     @tool
-    def list_notes() -> str:
+    def list_notes(config: RunnableConfig) -> str:
         """列出当前用户的全部笔记摘要。"""
-        notes = repository.list_all(owner_id)
+        notes = repository.list_all(user_id_from_config(config))
 
         if not notes:
             return "笔记列表为空。"
@@ -55,10 +57,13 @@ def create_note_tools(
         return "\n".join(_format_note_summary(note) for note in notes)
 
     @tool
-    def get_note(note_id: int) -> str:
+    def get_note(
+        note_id: int,
+        config: RunnableConfig,
+    ) -> str:
         """根据编号读取当前用户的一条完整笔记。"""
         note = repository.get_by_id(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             note_id=note_id,
         )
 
@@ -74,10 +79,13 @@ def create_note_tools(
         )
 
     @tool
-    def search_notes(query: str) -> str:
+    def search_notes(
+        query: str,
+        config: RunnableConfig,
+    ) -> str:
         """按关键词搜索当前用户的笔记标题和正文。"""
         notes = repository.search(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             query=query,
         )
 
@@ -89,6 +97,7 @@ def create_note_tools(
     @tool
     def update_note(
         note_id: int,
+        config: RunnableConfig,
         title: str | None = None,
         content: str | None = None,
     ) -> str:
@@ -98,7 +107,7 @@ def create_note_tools(
 
         try:
             note = repository.update(
-                owner_id=owner_id,
+                owner_id=user_id_from_config(config),
                 note_id=note_id,
                 title=title,
                 content=content,
@@ -112,7 +121,10 @@ def create_note_tools(
         return f"已更新笔记，ID={note.id}，标题：{note.title}"
 
     @tool
-    def delete_note(note_id: int) -> str:
+    def delete_note(
+        note_id: int,
+        config: RunnableConfig,
+    ) -> str:
         """请求永久删除一条笔记；执行前必须获得用户审批。"""
         decision = interrupt(
             {
@@ -129,7 +141,7 @@ def create_note_tools(
             return "用户拒绝删除该笔记，操作已取消。"
 
         was_deleted = repository.delete(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             note_id=note_id,
         )
 

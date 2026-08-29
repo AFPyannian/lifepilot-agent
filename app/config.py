@@ -31,17 +31,23 @@ class Settings(BaseSettings):
     deepseek_timeout_seconds: float = Field(default=60.0, gt=0)
     deepseek_max_retries: int = Field(default=2, ge=0, le=10)
 
-    lifepilot_api_key: SecretStr | None = None
-    api_auth_enabled: bool = False
-
     api_rate_limit_enabled: bool = True
     api_rate_limit_requests: int = Field(default=60, gt=0)
     api_rate_limit_window_seconds: int = Field(default=60, gt=0)
 
     agent_recursion_limit: int = Field(default=25, ge=5, le=100)
 
-    owner_id: str = Field(default="local-user", min_length=1)
+    local_cli_owner_id: str = Field(default="local-user", min_length=1)
     default_thread_id: str = Field(default="main", min_length=1)
+
+    auth_session_ttl_hours: int = Field(default=168, ge=1, le=24 * 90)
+    auth_session_touch_interval_seconds: int = Field(
+        default=300,
+        ge=60,
+        le=3600,
+    )
+    auth_login_max_failures: int = Field(default=5, ge=1, le=20)
+    auth_login_window_seconds: int = Field(default=900, ge=60, le=86_400)
 
     app_database_path: Path = PROJECT_ROOT / "data" / "lifepilot.db"
 
@@ -146,19 +152,6 @@ class Settings(BaseSettings):
 
         if self.langsmith_tracing and not self.langsmith_project.strip():
             raise ValueError("启用LangSmith追踪时项目名称不能为空")
-
-        return self
-
-    @model_validator(mode="after")
-    def validate_api_authentication(self) -> "Settings":
-        """确保启用 API 认证时提供非空访问密钥。"""
-        api_key = ""
-
-        if self.lifepilot_api_key is not None:
-            api_key = self.lifepilot_api_key.get_secret_value().strip()
-
-        if self.api_auth_enabled and not api_key:
-            raise ValueError("启用 API 认证时必须配置 LIFEPILOT_API_KEY")
 
         return self
 

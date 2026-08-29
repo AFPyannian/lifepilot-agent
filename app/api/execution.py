@@ -9,12 +9,15 @@ from langchain_core.messages import (
     BaseMessage,
 )
 
+from app.identity import AgentContext
+
 logger = logging.getLogger("lifepilot.api.execution")
 
 
 def resume_pending_execution(
     graph: Any,
     config: dict[str, Any],
+    context: AgentContext,
 ) -> None:
     """不追加用户消息，直接恢复会话中未完成的普通节点。"""
 
@@ -31,6 +34,7 @@ def resume_pending_execution(
     graph.invoke(
         None,
         config=config,
+        context=context,
     )
 
     resumed_snapshot = graph.get_state(config)

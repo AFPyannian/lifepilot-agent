@@ -9,6 +9,7 @@ from app.checkpointing import open_sqlite_checkpointer
 from app.config import apply_runtime_environment, get_settings
 from app.exceptions import ConfigurationError, LifePilotError
 from app.graph import build_graph
+from app.identity import AgentContext, checkpoint_config
 from app.logging_config import configure_logging, shutdown_logging
 from app.observability import configure_observability
 
@@ -60,6 +61,7 @@ def resume_pending_execution(
     graph: Any,
     config: dict[str, Any],
     thread_id: str,
+    context: AgentContext,
 ) -> dict[str, Any] | None:
     """从 Checkpoint 恢复当前会话的未完成执行。"""
     snapshot = graph.get_state(config)
@@ -78,20 +80,19 @@ def resume_pending_execution(
     return graph.invoke(
         None,
         config=config,
+        context=context,
     )
 
 
 def run_chat(
     graph: Any,
     thread_id: str,
+    user_id: str,
 ) -> None:
     """运行支持中断恢复的命令行多轮会话。"""
 
-    config = {
-        "configurable": {
-            "thread_id": thread_id,
-        }
-    }
+    config = checkpoint_config(user_id, thread_id)
+    context = AgentContext(user_id=user_id)
 
     print(
         f"\nLifePilot 已启动，输入 exit、quit 或 退出，可以结束程序。当前会话ID：{thread_id}"
@@ -107,6 +108,7 @@ def run_chat(
             graph=graph,
             config=config,
             thread_id=thread_id,
+            context=context,
         )
 
         if recovered_result is not None:
@@ -167,6 +169,7 @@ def run_chat(
                     ],
                 },
                 config=config,
+                context=context,
             )
 
         except LifePilotError as error:
@@ -237,7 +240,7 @@ def main() -> None:
     logger.info(
         "Application starting model=%s owner_id=%s",
         settings.deepseek_model,
-        settings.owner_id,
+        settings.local_cli_owner_id,
     )
 
     try:
@@ -254,12 +257,12 @@ def main() -> None:
             graph = build_graph(
                 settings=settings,
                 checkpointer=checkpointer,
-                owner_id=settings.owner_id,
             )
 
             run_chat(
                 graph=graph,
                 thread_id=thread_id,
+                user_id=settings.local_cli_owner_id,
             )
 
     except KeyboardInterrupt:

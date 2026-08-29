@@ -4,9 +4,12 @@ from typing import Any
 
 from fastapi import Request
 
+from app.identity import checkpoint_thread_id
+
 
 def build_run_config(
     request: Request,
+    user_id: str,
     thread_id: str,
     operation: str,
 ) -> dict[str, Any]:
@@ -30,15 +33,13 @@ def build_run_config(
         "test",
     )
 
-    owner_id = getattr(
-        settings,
-        "owner_id",
-        "unknown",
-    )
-
     return {
         "configurable": {
-            "thread_id": thread_id,
+            "thread_id": checkpoint_thread_id(
+                user_id,
+                thread_id,
+            ),
+            "user_id": user_id,
         },
         "recursion_limit": getattr(
             settings,
@@ -55,7 +56,7 @@ def build_run_config(
         "metadata": {
             "request_id": request_id,
             "thread_id": thread_id,
-            "owner_id": owner_id,
+            "user_id": user_id,
             "environment": environment,
             "operation": operation,
         },

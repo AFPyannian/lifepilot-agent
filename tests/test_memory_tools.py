@@ -11,10 +11,14 @@ def create_tools(tmp_path):
 
     tools = create_memory_tools(
         repository=repository,
-        owner_id="test-user",
     )
 
-    return {current_tool.name: current_tool for current_tool in tools}
+    return {
+        current_tool.name: current_tool.with_config(
+            configurable={"user_id": "test-user"}
+        )
+        for current_tool in tools
+    }
 
 
 def test_update_and_get_profile(tmp_path):

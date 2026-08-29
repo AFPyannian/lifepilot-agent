@@ -18,12 +18,14 @@ from starlette.concurrency import (
     run_in_threadpool,
 )
 
+from app.api.audit import record_audit_event
 from app.api.schemas import (
     KnowledgeDeleteResponse,
     KnowledgeDocumentItem,
     KnowledgeDocumentResponse,
     KnowledgeListResponse,
 )
+from app.api.security import CurrentUser
 from app.knowledge.loaders import (
     SUPPORTED_SUFFIXES,
 )
@@ -67,6 +69,7 @@ WINDOWS_RESERVED_NAMES = {
 )
 async def upload_knowledge_document(
     request: Request,
+    current_user: CurrentUser,
     file: Annotated[
         UploadFile,
         File(description=("TXT、Markdown 或 PDF 文档")),
@@ -79,6 +82,7 @@ async def upload_knowledge_document(
 
     source_path = _safe_source_path(
         source_directory=(settings.knowledge_source_directory),
+        user_id=current_user.user_id,
         filename=filename,
     )
 
@@ -92,7 +96,7 @@ async def upload_knowledge_document(
         def ingest_document() -> Any:
             with graph_lock:
                 return service.ingest(
-                    owner_id=settings.owner_id,
+                    owner_id=current_user.user_id,
                     filename=filename,
                 )
 
@@ -102,6 +106,15 @@ async def upload_knowledge_document(
             "Knowledge document imported filename=%s chunks=%s",
             result.source_name,
             result.chunk_count,
+        )
+
+        record_audit_event(
+            request,
+            user_id=current_user.user_id,
+            action="knowledge.upload",
+            resource_type="knowledge_document",
+            resource_id=result.source_name,
+            outcome="success",
         )
 
         return KnowledgeDocumentResponse(
@@ -141,14 +154,15 @@ async def upload_knowledge_document(
 )
 async def list_knowledge_documents(
     request: Request,
+    current_user: CurrentUser,
 ) -> KnowledgeListResponse:
     """返回当前用户已经索引的知识文档。"""
-    service, settings, graph_lock = _get_knowledge_dependencies(request)
+    service, _settings, graph_lock = _get_knowledge_dependencies(request)
 
     def list_documents() -> Any:
         """在线程池中读取知识文档列表。"""
         with graph_lock:
-            return service.list_sources(settings.owner_id)
+            return service.list_sources(current_user.user_id)
 
     try:
         sources = await run_in_threadpool(list_documents)
@@ -180,6 +194,7 @@ async def list_knowledge_documents(
 async def delete_knowledge_document(
     filename: str,
     request: Request,
+    current_user: CurrentUser,
 ) -> KnowledgeDeleteResponse:
     """删除知识文档的向量记录和源文件。"""
     service, settings, graph_lock = _get_knowledge_dependencies(request)
@@ -188,6 +203,7 @@ async def delete_knowledge_document(
 
     source_path = _safe_source_path(
         source_directory=(settings.knowledge_source_directory),
+        user_id=current_user.user_id,
         filename=safe_filename,
     )
 
@@ -195,7 +211,7 @@ async def delete_knowledge_document(
         """在应用锁内完成向量和文件删除。"""
         with graph_lock:
             vector_deleted = service.delete_source(
-                owner_id=settings.owner_id,
+                owner_id=current_user.user_id,
                 filename=safe_filename,
             )
 
@@ -226,6 +242,15 @@ async def delete_knowledge_document(
             status_code=(status.HTTP_500_INTERNAL_SERVER_ERROR),
             detail="删除知识库文档失败。",
         ) from error
+
+    record_audit_event(
+        request,
+        user_id=current_user.user_id,
+        action="knowledge.delete",
+        resource_type="knowledge_document",
+        resource_id=safe_filename,
+        outcome="success" if deleted else "not_found",
+    )
 
     return KnowledgeDeleteResponse(
         filename=safe_filename,
@@ -318,9 +343,10 @@ def _validate_filename(
 
 def _safe_source_path(
     source_directory: Path,
+    user_id: str,
     filename: str,
 ) -> Path:
-    """确保目标文件位于知识库根目录内。"""
+    """确保目标文件位于当前用户的知识库目录内。"""
     root = source_directory.resolve()
 
     root.mkdir(
@@ -328,9 +354,22 @@ def _safe_source_path(
         exist_ok=True,
     )
 
-    source_path = (root / filename).resolve()
+    user_directory = (root / user_id).resolve()
 
-    if source_path.parent != root:
+    if user_directory.parent != root:
+        raise HTTPException(
+            status_code=(status.HTTP_400_BAD_REQUEST),
+            detail="用户知识库路径无效。",
+        )
+
+    user_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    source_path = (user_directory / filename).resolve()
+
+    if source_path.parent != user_directory:
         raise HTTPException(
             status_code=(status.HTTP_400_BAD_REQUEST),
             detail="文件路径不安全。",

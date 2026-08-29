@@ -80,11 +80,11 @@ def test_health_check() -> None:
     assert client.is_healthy() is True
 
 
-def test_client_sends_api_key() -> None:
+def test_client_sends_session_token() -> None:
     def handler(
         request: httpx.Request,
     ) -> httpx.Response:
-        assert request.headers["X-API-Key"] == "test-api-key"
+        assert request.headers["Authorization"] == "Bearer test-session-token"
 
         return httpx.Response(
             status_code=200,
@@ -96,7 +96,7 @@ def test_client_sends_api_key() -> None:
 
     client = LifePilotApiClient(
         base_url="http://testserver",
-        api_key="test-api-key",
+        access_token="test-session-token",
         transport=httpx.MockTransport(handler),
     )
 

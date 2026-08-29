@@ -13,7 +13,6 @@ def test_build_run_config() -> None:
             state=SimpleNamespace(
                 settings=SimpleNamespace(
                     app_environment=("development"),
-                    owner_id="test-user",
                     agent_recursion_limit=40,
                 )
             )
@@ -23,12 +22,14 @@ def test_build_run_config() -> None:
 
     config = build_run_config(
         request=request,
+        user_id="test-user",
         thread_id="thread-001",
         operation="stream_chat",
     )
 
     assert config["configurable"] == {
-        "thread_id": "thread-001",
+        "thread_id": "user:test-user:thread:thread-001",
+        "user_id": "test-user",
     }
 
     assert config["recursion_limit"] == 40
@@ -40,7 +41,7 @@ def test_build_run_config() -> None:
     assert config["metadata"] == {
         "request_id": "request-001",
         "thread_id": "thread-001",
-        "owner_id": "test-user",
+        "user_id": "test-user",
         "environment": "development",
         "operation": "stream_chat",
     }

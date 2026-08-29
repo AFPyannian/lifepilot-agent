@@ -10,6 +10,7 @@ from app.checkpointing import (
     open_sqlite_checkpointer,
 )
 from app.graph import build_graph
+from app.identity import AgentContext, checkpoint_config, checkpoint_thread_id
 from app.repositories.note_repository import (
     NoteRepository,
 )
@@ -46,14 +47,9 @@ def test_in_memory_checkpointer_still_works(tmp_path):
         todo_repository=TodoRepository(application_database_path),
         note_repository=NoteRepository(application_database_path),
         memory_repository=UserMemoryRepository(application_database_path),
-        owner_id="test-user",
     )
 
-    config = {
-        "configurable": {
-            "thread_id": "memory-thread",
-        }
-    }
+    config = checkpoint_config("test-user", "memory-thread")
 
     result = graph.invoke(
         {
@@ -62,6 +58,7 @@ def test_in_memory_checkpointer_still_works(tmp_path):
             ],
         },
         config=config,
+        context=AgentContext(user_id="test-user"),
     )
 
     assert len(result["messages"]) == 2
@@ -80,11 +77,7 @@ def test_sqlite_checkpointer_survives_reopen(
 
     application_database_path = tmp_path / "application.db"
 
-    config = {
-        "configurable": {
-            "thread_id": "persistent-thread",
-        }
-    }
+    config = checkpoint_config("test-user", "persistent-thread")
 
     with open_sqlite_checkpointer(checkpoint_path) as first_checkpointer:
         first_graph = build_graph(
@@ -93,7 +86,6 @@ def test_sqlite_checkpointer_survives_reopen(
             todo_repository=TodoRepository(application_database_path),
             note_repository=NoteRepository(application_database_path),
             memory_repository=UserMemoryRepository(application_database_path),
-            owner_id="test-user",
         )
 
         first_result = first_graph.invoke(
@@ -103,6 +95,7 @@ def test_sqlite_checkpointer_survives_reopen(
                 ],
             },
             config=config,
+            context=AgentContext(user_id="test-user"),
         )
 
         assert len(first_result["messages"]) == 2
@@ -114,7 +107,6 @@ def test_sqlite_checkpointer_survives_reopen(
             todo_repository=TodoRepository(application_database_path),
             note_repository=NoteRepository(application_database_path),
             memory_repository=UserMemoryRepository(application_database_path),
-            owner_id="test-user",
         )
 
         second_result = second_graph.invoke(
@@ -124,6 +116,7 @@ def test_sqlite_checkpointer_survives_reopen(
                 ],
             },
             config=config,
+            context=AgentContext(user_id="test-user"),
         )
 
         assert len(second_result["messages"]) == 4
@@ -144,11 +137,7 @@ def test_delete_thread_removes_checkpoints(
 
     application_database_path = tmp_path / "application.db"
 
-    config = {
-        "configurable": {
-            "thread_id": "delete-thread",
-        }
-    }
+    config = checkpoint_config("test-user", "delete-thread")
 
     with open_sqlite_checkpointer(checkpoint_path) as checkpointer:
         graph = build_graph(
@@ -157,17 +146,17 @@ def test_delete_thread_removes_checkpoints(
             todo_repository=TodoRepository(application_database_path),
             note_repository=NoteRepository(application_database_path),
             memory_repository=(UserMemoryRepository(application_database_path)),
-            owner_id="test-user",
         )
 
         graph.invoke(
             {"messages": [HumanMessage(content="测试消息")]},
             config=config,
+            context=AgentContext(user_id="test-user"),
         )
 
         assert graph.get_state(config).values["messages"]
 
-        checkpointer.delete_thread("delete-thread")
+        checkpointer.delete_thread(checkpoint_thread_id("test-user", "delete-thread"))
 
         empty_snapshot = graph.get_state(config)
 

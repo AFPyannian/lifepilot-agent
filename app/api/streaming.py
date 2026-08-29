@@ -20,6 +20,7 @@ from app.api.interrupts import (
     normalize_approval_request,
 )
 from app.exceptions import LifePilotError
+from app.identity import AgentContext
 
 logger = logging.getLogger("lifepilot.api.streaming")
 
@@ -45,6 +46,7 @@ def stream_chat_events(
     message: str,
     thread_id: str,
     config: dict[str, Any],
+    context: AgentContext,
 ) -> Iterator[str]:
     """执行 Agent 并依次产生开始、文本、审批、完成或错误事件。"""
 
@@ -71,11 +73,13 @@ def stream_chat_events(
                 resume_pending_execution(
                     graph=graph,
                     config=config,
+                    context=context,
                 )
 
                 stream = graph.stream(
                     {"messages": [HumanMessage(content=message)]},
                     config=config,
+                    context=context,
                     stream_mode="messages",
                     version="v2",
                 )

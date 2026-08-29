@@ -81,7 +81,7 @@ class LifePilotApiClient:
         base_url: str,
         timeout_seconds: float = 180.0,
         transport: (httpx.BaseTransport | None) = None,
-        api_key: str | None = None,
+        access_token: str | None = None,
     ) -> None:
         """校验服务地址并保存认证、超时和测试传输配置。"""
         clean_base_url = base_url.strip().rstrip("/")
@@ -100,10 +100,63 @@ class LifePilotApiClient:
 
         self._headers: dict[str, str] = {}
 
-        normalized_api_key = api_key.strip() if api_key is not None else ""
+        normalized_token = access_token.strip() if access_token is not None else ""
 
-        if normalized_api_key:
-            self._headers["X-API-Key"] = normalized_api_key
+        if normalized_token:
+            self._headers["Authorization"] = f"Bearer {normalized_token}"
+
+    def login(
+        self,
+        username: str,
+        password: str,
+    ) -> dict[str, Any]:
+        """使用账号密码登录并返回 Session。"""
+        return self._request_json(
+            method="POST",
+            path="/api/v1/auth/login",
+            json={
+                "username": username,
+                "password": password,
+            },
+        )
+
+    def get_current_user(self) -> dict[str, Any]:
+        """读取当前 Session 对应的用户。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/auth/me",
+        )
+
+    def logout(self) -> bool:
+        """撤销当前 Session。"""
+        data = self._request_json(
+            method="POST",
+            path="/api/v1/auth/logout",
+        )
+        return bool(data.get("revoked"))
+
+    def logout_all(self) -> bool:
+        """撤销当前用户的全部 Session。"""
+        data = self._request_json(
+            method="POST",
+            path="/api/v1/auth/logout-all",
+        )
+        return bool(data.get("revoked"))
+
+    def change_password(
+        self,
+        current_password: str,
+        new_password: str,
+    ) -> None:
+        """修改密码；成功后全部 Session 都会失效。"""
+        self._request(
+            method="POST",
+            path="/api/v1/auth/password",
+            json={
+                "current_password": current_password,
+                "new_password": new_password,
+            },
+        )
 
     def is_healthy(self) -> bool:
         """检查后端健康接口是否可用。"""
@@ -411,16 +464,10 @@ class LifePilotApiClient:
     ) -> dict[str, Any]:
         """发送普通请求并返回 JSON 对象。"""
 
-        try:
-            with self._create_http_client() as client:
-                response = client.request(
-                    method=method,
-                    url=path,
-                    **kwargs,
-                )
+        response = self._request(method=method, path=path, **kwargs)
 
-                response.raise_for_status()
-                data = response.json()
+        try:
+            data = response.json()
 
             if not isinstance(data, dict):
                 raise LifePilotApiError("后端响应格式不正确。")
@@ -430,24 +477,36 @@ class LifePilotApiClient:
         except LifePilotApiError:
             raise
 
+        except ValueError as error:
+            raise LifePilotApiError("后端返回了无法解析的数据。") from error
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """发送普通请求并统一转换连接、超时和状态错误。"""
+        try:
+            with self._create_http_client() as client:
+                response = client.request(
+                    method=method,
+                    url=path,
+                    **kwargs,
+                )
+                response.raise_for_status()
+                return response
         except httpx.HTTPStatusError as error:
             detail = self._extract_http_error(error.response)
-
             raise LifePilotApiError(detail) from error
-
         except httpx.ConnectError as error:
             raise LifePilotApiError(
                 "无法连接 LifePilot 后端，请确认 FastAPI 已经启动。"
             ) from error
-
         except httpx.TimeoutException as error:
             raise LifePilotApiError("请求超时，请稍后重试。") from error
-
         except httpx.HTTPError as error:
             raise LifePilotApiError("与 LifePilot 后端通信失败。") from error
-
-        except ValueError as error:
-            raise LifePilotApiError("后端返回了无法解析的数据。") from error
 
     def _create_http_client(
         self,

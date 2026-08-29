@@ -1,19 +1,22 @@
 """创建供 Agent 管理用户长期记忆的工具。"""
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 
+from app.identity import user_id_from_config
 from app.repositories.user_memory_repository import (
     UserMemoryRepository,
 )
 
 
 def create_memory_tools(
-    repository: UserMemoryRepository, owner_id: str
+    repository: UserMemoryRepository,
 ) -> list[BaseTool]:
-    """为指定用户创建资料和长期记忆工具。"""
+    """创建从可信运行上下文读取用户身份的记忆工具。"""
 
     @tool
     def update_user_profile(
+        config: RunnableConfig,
         display_name: str | None = None,
         occupation: str | None = None,
         current_goal: str | None = None,
@@ -22,7 +25,7 @@ def create_memory_tools(
         """更新姓名、职业、目标或回答风格；仅保存用户明确要求记住的资料。"""
         try:
             profile = repository.update_profile(
-                owner_id=owner_id,
+                owner_id=user_id_from_config(config),
                 display_name=display_name,
                 occupation=occupation,
                 current_goal=current_goal,
@@ -40,9 +43,9 @@ def create_memory_tools(
         )
 
     @tool
-    def get_user_profile() -> str:
+    def get_user_profile(config: RunnableConfig) -> str:
         """读取当前用户的结构化资料。"""
-        profile = repository.get_profile(owner_id)
+        profile = repository.get_profile(user_id_from_config(config))
 
         if profile is None:
             return "尚未保存用户资料。"
@@ -58,11 +61,12 @@ def create_memory_tools(
     def remember_user_fact(
         category: str,
         content: str,
+        config: RunnableConfig,
     ) -> str:
         """保存稳定偏好、重要事实、长期目标或约束；不得保存敏感凭据。"""
         try:
             memory = repository.add_memory(
-                owner_id=owner_id,
+                owner_id=user_id_from_config(config),
                 category=category,
                 content=content,
             )
@@ -76,10 +80,10 @@ def create_memory_tools(
         )
 
     @tool
-    def list_user_memories() -> str:
+    def list_user_memories(config: RunnableConfig) -> str:
         """列出当前用户最近保存的长期记忆。"""
         memories = repository.list_recent(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             limit=50,
         )
 
@@ -94,10 +98,11 @@ def create_memory_tools(
     @tool
     def search_user_memories(
         query: str,
+        config: RunnableConfig,
     ) -> str:
         """按关键词搜索当前用户的长期记忆。"""
         memories = repository.search(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             query=query,
         )
 
@@ -112,10 +117,11 @@ def create_memory_tools(
     @tool
     def forget_user_memory(
         memory_id: int,
+        config: RunnableConfig,
     ) -> str:
         """请求永久删除一条长期记忆；执行前必须获得用户审批。"""
         was_deleted = repository.delete_memory(
-            owner_id=owner_id,
+            owner_id=user_id_from_config(config),
             memory_id=memory_id,
         )
 

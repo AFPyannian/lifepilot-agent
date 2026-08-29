@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
+from app.api.audit import record_audit_event
 from app.api.execution import extract_latest_ai_reply, resume_pending_execution
 from app.api.interrupts import (
     extract_invoke_interrupt,
@@ -21,8 +22,10 @@ from app.api.schemas import (
     ChatRequest,
     ChatResponse,
 )
+from app.api.security import CurrentUser
 from app.api.streaming import stream_chat_events
 from app.exceptions import LifePilotError
+from app.identity import AgentContext
 
 logger = logging.getLogger("lifepilot.api")
 
@@ -34,12 +37,17 @@ router = APIRouter()
     response_model=ChatResponse,
     summary="与 LifePilot Agent 对话",
 )
-def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+def chat(
+    payload: ChatRequest,
+    request: Request,
+    current_user: CurrentUser,
+) -> ChatResponse:
     """执行一次同步 Agent 对话，并返回回答或审批请求。"""
     graph, graph_lock = _get_graph_dependencies(request)
 
     config = build_run_config(
         request=request,
+        user_id=current_user.user_id,
         thread_id=payload.thread_id,
         operation="chat",
     )
@@ -47,6 +55,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     try:
         _record_conversation(
             request=request,
+            user_id=current_user.user_id,
             thread_id=payload.thread_id,
             message=payload.message,
         )
@@ -66,11 +75,13 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             resume_pending_execution(
                 graph=graph,
                 config=config,
+                context=AgentContext(user_id=current_user.user_id),
             )
 
             result = graph.invoke(
                 {"messages": [HumanMessage(content=(payload.message))]},
                 config=config,
+                context=AgentContext(user_id=current_user.user_id),
             )
 
             invoke_interrupt = extract_invoke_interrupt(result)
@@ -96,6 +107,15 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         logger.info(
             "Agent API request completed thread_id=%s",
             payload.thread_id,
+        )
+
+        record_audit_event(
+            request,
+            user_id=current_user.user_id,
+            action="chat.execute",
+            resource_type="conversation",
+            resource_id=payload.thread_id,
+            outcome="success",
         )
 
         return ChatResponse(
@@ -143,18 +163,21 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 def chat_stream(
     payload: ChatRequest,
     request: Request,
+    current_user: CurrentUser,
 ) -> StreamingResponse:
     """创建逐段返回 Agent 输出的 SSE 响应。"""
     graph, graph_lock = _get_graph_dependencies(request)
 
     _record_conversation(
         request=request,
+        user_id=current_user.user_id,
         thread_id=payload.thread_id,
         message=payload.message,
     )
 
     config = build_run_config(
         request=request,
+        user_id=current_user.user_id,
         thread_id=payload.thread_id,
         operation="stream_chat",
     )
@@ -165,6 +188,16 @@ def chat_stream(
         message=payload.message,
         thread_id=payload.thread_id,
         config=config,
+        context=AgentContext(user_id=current_user.user_id),
+    )
+
+    record_audit_event(
+        request,
+        user_id=current_user.user_id,
+        action="chat.stream",
+        resource_type="conversation",
+        resource_id=payload.thread_id,
+        outcome="started",
     )
 
     return StreamingResponse(
@@ -185,12 +218,14 @@ def chat_stream(
 def resume_chat(
     payload: ApprovalDecision,
     request: Request,
+    current_user: CurrentUser,
 ) -> ApprovalResumeResponse:
     """根据用户决定恢复等待审批的 Agent 执行。"""
     graph, graph_lock = _get_graph_dependencies(request)
 
     config = build_run_config(
         request=request,
+        user_id=current_user.user_id,
         thread_id=payload.thread_id,
         operation="resume_approval",
     )
@@ -198,6 +233,7 @@ def resume_chat(
     try:
         _touch_conversation(
             request=request,
+            user_id=current_user.user_id,
             thread_id=payload.thread_id,
         )
 
@@ -220,6 +256,7 @@ def resume_chat(
                     }
                 ),
                 config=config,
+                context=AgentContext(user_id=current_user.user_id),
             )
 
             pending_interrupt = extract_invoke_interrupt(result)
@@ -248,6 +285,15 @@ def resume_chat(
             "Agent approval resolved thread_id=%s approved=%s",
             payload.thread_id,
             payload.approved,
+        )
+
+        record_audit_event(
+            request,
+            user_id=current_user.user_id,
+            action="chat.resume_approval",
+            resource_type="conversation",
+            resource_id=payload.thread_id,
+            outcome="success",
         )
 
         return ApprovalResumeResponse(
@@ -310,6 +356,7 @@ def _get_graph_dependencies(
 
 def _record_conversation(
     request: Request,
+    user_id: str,
     thread_id: str,
     message: str,
 ) -> None:
@@ -321,17 +368,11 @@ def _record_conversation(
         None,
     )
 
-    settings = getattr(
-        request.app.state,
-        "settings",
-        None,
-    )
-
-    if repository is None or settings is None:
+    if repository is None:
         return
 
     repository.record_message(
-        owner_id=settings.owner_id,
+        owner_id=user_id,
         thread_id=thread_id,
         first_message=message,
     )
@@ -339,6 +380,7 @@ def _record_conversation(
 
 def _touch_conversation(
     request: Request,
+    user_id: str,
     thread_id: str,
 ) -> None:
     """刷新已经存在的会话活动时间。"""
@@ -349,16 +391,10 @@ def _touch_conversation(
         None,
     )
 
-    settings = getattr(
-        request.app.state,
-        "settings",
-        None,
-    )
-
-    if repository is None or settings is None:
+    if repository is None:
         return
 
     repository.touch(
-        owner_id=settings.owner_id,
+        owner_id=user_id,
         thread_id=thread_id,
     )
