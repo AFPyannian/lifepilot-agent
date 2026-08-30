@@ -43,6 +43,7 @@ logs/
 knowledge_base/*
 !knowledge_base/.gitkeep
 data/chroma/
+data/migration-backups/
 
 # 本地模型和评估报告
 models/

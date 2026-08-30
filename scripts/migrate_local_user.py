@@ -132,7 +132,7 @@ def _migrate_source_files(
     target_directory.mkdir(parents=True, exist_ok=True)
 
     for source in source_root.iterdir():
-        if not source.is_file():
+        if not source.is_file() or source.name == ".gitkeep":
             continue
         destination = target_directory / source.name
         if destination.exists():

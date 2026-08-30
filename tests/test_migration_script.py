@@ -54,6 +54,7 @@ def test_source_files_move_into_target_user_directory(tmp_path) -> None:
     source_root = tmp_path / "knowledge"
     source_root.mkdir()
     (source_root / "guide.md").write_text("legacy", encoding="utf-8")
+    (source_root / ".gitkeep").touch()
     (source_root / "existing-user").mkdir()
 
     _migrate_source_files(source_root, "target-user")
@@ -63,3 +64,5 @@ def test_source_files_move_into_target_user_directory(tmp_path) -> None:
         encoding="utf-8"
     ) == "legacy"
     assert (source_root / "existing-user").is_dir()
+    assert (source_root / ".gitkeep").is_file()
+    assert not (source_root / "target-user" / ".gitkeep").exists()
