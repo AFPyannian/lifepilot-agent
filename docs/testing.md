@@ -98,6 +98,9 @@ FastAPI TestClient 和 HTTPX MockTransport 用于验证：
 - AES-GCM 凭据加密、防篡改和跨用户密文调换。
 - 用户 Key 创建、轮换、撤销、删除及明文不落库。
 - BYOK/PLATFORM 模型路由和单用户认证失败隔离。
+- 既有用户授权迁移、新用户默认无平台授权、授权过期与撤销。
+- API 拒绝发生在会话写入前，模型网关再次执行能力校验。
+- 用量事件幂等状态流转、跨用户隔离、Token 提取与汇总 API。
 
 这些测试通过 `create_app()` 注入 Fake Graph、临时 Repository 和知识库服务，不启动真实 Uvicorn。
 

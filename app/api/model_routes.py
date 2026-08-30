@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException, Request, Response, status
 
+from app.access.models import Capability
 from app.api.audit import record_audit_event
 from app.api.schemas import (
     ModelAccessResponse,
@@ -10,7 +11,7 @@ from app.api.schemas import (
 )
 from app.api.security import CurrentUser
 from app.credentials.errors import CredentialValidationError
-from app.credentials.models import ProviderCredentialMetadata
+from app.credentials.models import ModelMode, ProviderCredentialMetadata
 from app.credentials.service import ProviderCredentialService
 
 router = APIRouter()
@@ -50,13 +51,41 @@ def get_model_access(
     """返回当前账号可选择的模型模式，不返回任何 Secret。"""
     settings = request.app.state.settings
     metadata = _get_service(request).get_metadata(user_id=current_user.user_id)
+    policy = getattr(request.app.state, "access_policy", None)
+    if policy is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="访问控制服务不可用。",
+        )
+    byok = policy.evaluate(
+        user_id=current_user.user_id,
+        capability=Capability.MODEL_BYOK,
+    )
+    platform = policy.evaluate(
+        user_id=current_user.user_id,
+        capability=Capability.MODEL_PLATFORM,
+    )
+    preferred = settings.default_model_mode
+    default_mode: ModelMode | None = None
+    if preferred == "BYOK" and byok.allowed:
+        default_mode = "BYOK"
+    elif preferred == "PLATFORM" and platform.allowed:
+        default_mode = "PLATFORM"
+    elif byok.allowed:
+        default_mode = "BYOK"
+    elif platform.allowed:
+        default_mode = "PLATFORM"
 
     return ModelAccessResponse(
         byok_enabled=settings.byok_enabled,
         byok_configured=metadata is not None and metadata.status == "active",
         byok_status=None if metadata is None else metadata.status,
+        byok_allowed=byok.allowed,
+        byok_reason=byok.user_message,
         platform_enabled=settings.platform_model_enabled,
-        default_mode=settings.default_model_mode,
+        platform_allowed=platform.allowed,
+        platform_reason=platform.user_message,
+        default_mode=default_mode,
     )
 
 

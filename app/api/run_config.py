@@ -4,7 +4,21 @@ from typing import Any
 
 from fastapi import Request
 
-from app.identity import checkpoint_thread_id
+from app.identity import AgentContext, checkpoint_thread_id
+
+
+def build_agent_context(
+    request: Request,
+    *,
+    user_id: str,
+    thread_id: str,
+) -> AgentContext:
+    """构造包含请求、用户和公开会话 ID 的可信执行上下文。"""
+    return AgentContext(
+        user_id=user_id,
+        request_id=getattr(request.state, "request_id", "unknown"),
+        public_thread_id=thread_id,
+    )
 
 
 def build_run_config(

@@ -20,6 +20,10 @@ The project follows [Semantic Versioning](https://semver.org/).
   revocation and deletion.
 - A model gateway that selects platform or user credentials for each authenticated
   request without caching user secrets.
+- Centralized capability authorization for chat, BYOK and platform model access.
+- Expiring and revocable entitlements with a one-time migration for existing users.
+- Per-model-call usage events, user-scoped usage APIs and Streamlit usage summary.
+- Local administrator CLI for listing, granting and revoking capabilities.
 
 ### Changed
 
@@ -27,6 +31,7 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Namespaced LangGraph checkpoint thread IDs by authenticated user UUID.
 - Persisted only the selected model mode in LangGraph state so approval resumes use
   the original credential source.
+- Passed trusted request and public thread identifiers into each model invocation.
 
 ### Security
 
@@ -35,6 +40,7 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Session tokens are returned only to the client; the database stores SHA-256 digests.
 - User API keys are validated before storage and protected with AES-256-GCM; raw keys
   are never returned by the API, written to logs or stored in checkpoints.
+- Usage events exclude prompts, responses, secrets, prices and payment information.
 
 ## [1.0.0] - 2026-08-27
 

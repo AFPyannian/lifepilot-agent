@@ -103,6 +103,23 @@ def test_client_sends_session_token() -> None:
     assert client.is_healthy() is True
 
 
+def test_usage_client_methods() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(200, json={"successful_calls": 2})
+        assert request.url.params["limit"] == "5"
+        return httpx.Response(200, json=[{"event_id": "event-1"}])
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        access_token="test-session-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.get_usage_summary()["successful_calls"] == 2
+    assert client.list_usage_events(limit=5) == [{"event_id": "event-1"}]
+
+
 def test_registration_and_invitation_client_methods() -> None:
     requests: list[tuple[str, str]] = []
 

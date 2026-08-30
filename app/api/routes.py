@@ -8,6 +8,8 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
+from app.access.errors import AccessDeniedError
+from app.access.models import Capability
 from app.api.audit import record_audit_event
 from app.api.execution import extract_latest_ai_reply, resume_pending_execution
 from app.api.interrupts import (
@@ -15,7 +17,7 @@ from app.api.interrupts import (
     find_pending_interrupt,
     normalize_approval_request,
 )
-from app.api.run_config import build_run_config
+from app.api.run_config import build_agent_context, build_run_config
 from app.api.schemas import (
     ApprovalDecision,
     ApprovalResumeResponse,
@@ -26,7 +28,6 @@ from app.api.security import CurrentUser
 from app.api.streaming import stream_chat_events
 from app.credentials.errors import CredentialError
 from app.exceptions import LifePilotError, ModelServiceError
-from app.identity import AgentContext
 
 logger = logging.getLogger("lifepilot.api")
 
@@ -45,6 +46,12 @@ def chat(
 ) -> ChatResponse:
     """执行一次同步 Agent 对话，并返回回答或审批请求。"""
     graph, graph_lock = _get_graph_dependencies(request)
+    _authorize_chat(request, current_user.user_id, payload.model_mode)
+    agent_context = build_agent_context(
+        request,
+        user_id=current_user.user_id,
+        thread_id=payload.thread_id,
+    )
 
     config = build_run_config(
         request=request,
@@ -76,7 +83,7 @@ def chat(
             resume_pending_execution(
                 graph=graph,
                 config=config,
-                context=AgentContext(user_id=current_user.user_id),
+                context=agent_context,
             )
 
             result = graph.invoke(
@@ -85,7 +92,7 @@ def chat(
                     "model_mode": payload.model_mode,
                 },
                 config=config,
-                context=AgentContext(user_id=current_user.user_id),
+                context=agent_context,
             )
 
             invoke_interrupt = extract_invoke_interrupt(result)
@@ -129,6 +136,12 @@ def chat(
 
     except HTTPException:
         raise
+
+    except AccessDeniedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error.user_message,
+        ) from None
 
     except (CredentialError, ModelServiceError) as error:
         logger.warning(
@@ -180,6 +193,12 @@ def chat_stream(
 ) -> StreamingResponse:
     """创建逐段返回 Agent 输出的 SSE 响应。"""
     graph, graph_lock = _get_graph_dependencies(request)
+    _authorize_chat(request, current_user.user_id, payload.model_mode)
+    agent_context = build_agent_context(
+        request,
+        user_id=current_user.user_id,
+        thread_id=payload.thread_id,
+    )
 
     _record_conversation(
         request=request,
@@ -202,7 +221,7 @@ def chat_stream(
         thread_id=payload.thread_id,
         model_mode=payload.model_mode,
         config=config,
-        context=AgentContext(user_id=current_user.user_id),
+        context=agent_context,
     )
 
     record_audit_event(
@@ -236,6 +255,12 @@ def resume_chat(
 ) -> ApprovalResumeResponse:
     """根据用户决定恢复等待审批的 Agent 执行。"""
     graph, graph_lock = _get_graph_dependencies(request)
+    _authorize_capability(request, current_user.user_id, Capability.AGENT_CHAT)
+    agent_context = build_agent_context(
+        request,
+        user_id=current_user.user_id,
+        thread_id=payload.thread_id,
+    )
 
     config = build_run_config(
         request=request,
@@ -270,7 +295,7 @@ def resume_chat(
                     }
                 ),
                 config=config,
-                context=AgentContext(user_id=current_user.user_id),
+                context=agent_context,
             )
 
             pending_interrupt = extract_invoke_interrupt(result)
@@ -319,6 +344,12 @@ def resume_chat(
     except HTTPException:
         raise
 
+    except AccessDeniedError as error:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=error.user_message,
+        ) from None
+
     except LifePilotError as error:
         logger.exception(
             "Expected approval resume error thread_id=%s",
@@ -366,6 +397,39 @@ def _get_graph_dependencies(
         )
 
     return graph, graph_lock
+
+
+def _authorize_chat(request: Request, user_id: str, model_mode: str) -> None:
+    _authorize_capability(request, user_id, Capability.AGENT_CHAT)
+    capability = (
+        Capability.MODEL_BYOK if model_mode == "BYOK" else Capability.MODEL_PLATFORM
+    )
+    _authorize_capability(request, user_id, capability)
+
+
+def _authorize_capability(
+    request: Request,
+    user_id: str,
+    capability: Capability,
+) -> None:
+    """在写入会话或进入 SSE 前执行统一授权。"""
+    policy = getattr(request.app.state, "access_policy", None)
+    if policy is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="访问控制服务不可用。",
+        )
+    try:
+        policy.authorize(user_id=user_id, capability=capability)
+    except AccessDeniedError as error:
+        http_status = (
+            status.HTTP_409_CONFLICT
+            if error.reason_code == "credential_required"
+            else status.HTTP_403_FORBIDDEN
+        )
+        raise HTTPException(
+            status_code=http_status, detail=error.user_message
+        ) from None
 
 
 def _record_conversation(

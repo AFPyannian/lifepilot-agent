@@ -323,5 +323,43 @@ class ModelAccessResponse(BaseModel):
     byok_enabled: bool
     byok_configured: bool
     byok_status: Literal["active", "invalid", "revoked"] | None
+    byok_allowed: bool
+    byok_reason: str
     platform_enabled: bool
-    default_mode: Literal["BYOK", "PLATFORM"]
+    platform_allowed: bool
+    platform_reason: str
+    default_mode: Literal["BYOK", "PLATFORM"] | None
+
+
+class UsageEventResponse(BaseModel):
+    """当前用户可见的单次模型调用事件。"""
+
+    event_id: str
+    request_id: str
+    thread_id: str
+    provider: Literal["deepseek"]
+    model: str
+    credential_mode: Literal["BYOK", "PLATFORM"]
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+    status: Literal["started", "succeeded", "failed"]
+    error_code: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    duration_ms: int | None
+
+
+class UsageSummaryResponse(BaseModel):
+    """当前用户在指定时间范围内的模型用量汇总。"""
+
+    since: datetime
+    until: datetime
+    requests: int
+    successful_calls: int
+    failed_calls: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    byok_calls: int
+    platform_calls: int

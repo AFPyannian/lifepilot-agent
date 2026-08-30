@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from swagger_ui_bundle import swagger_ui_path  # type: ignore[import-untyped]
 
+from app.access.policy import AccessPolicy, AccessPolicyProtocol, AllowAllAccessPolicy
 from app.api.admin_routes import router as admin_router
 from app.api.auth_routes import router as auth_router
 from app.api.conversation_routes import router as conversation_router
@@ -22,6 +23,7 @@ from app.api.model_routes import router as model_router
 from app.api.rate_limit import SlidingWindowRateLimitMiddleware
 from app.api.routes import router as chat_router
 from app.api.security import require_current_user
+from app.api.usage_routes import router as usage_router
 from app.auth.rate_limit import LoginRateLimiter
 from app.auth.service import AuthService
 from app.checkpointing import open_sqlite_checkpointer
@@ -37,9 +39,12 @@ from app.observability import configure_observability
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.entitlement_repository import EntitlementRepository
 from app.repositories.provider_credential_repository import (
     ProviderCredentialRepository,
 )
+from app.repositories.usage_repository import UsageRepository
+from app.usage.service import UsageTracker
 
 
 def create_app(
@@ -52,6 +57,9 @@ def create_app(
     login_rate_limiter: LoginRateLimiter | None = None,
     registration_rate_limiter: LoginRateLimiter | None = None,
     provider_credential_service: ProviderCredentialService | None = None,
+    access_policy: AccessPolicyProtocol | None = None,
+    entitlement_repository: EntitlementRepository | None = None,
+    usage_repository: UsageRepository | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
 
@@ -83,6 +91,9 @@ def create_app(
                 )
             )
             application.state.provider_credential_service = provider_credential_service
+            application.state.access_policy = access_policy or AllowAllAccessPolicy()
+            application.state.entitlement_repository = entitlement_repository
+            application.state.usage_repository = usage_repository
 
             application.state.checkpointer = getattr(agent_graph, "checkpointer", None)
 
@@ -150,9 +161,25 @@ def create_app(
                     validator=DeepSeekCredentialValidator(active_settings),
                 )
             )
+            active_entitlement_repository = (
+                entitlement_repository
+                or EntitlementRepository(active_settings.app_database_path)
+            )
+            active_usage_repository = usage_repository or UsageRepository(
+                active_settings.app_database_path
+            )
+            active_access_policy = access_policy or AccessPolicy(
+                settings=active_settings,
+                auth_repository=active_auth_repository,
+                entitlement_repository=active_entitlement_repository,
+                credential_service=active_credential_service,
+            )
+            active_usage_tracker = UsageTracker(active_usage_repository)
             active_model_gateway = DeepSeekModelGateway(
                 settings=active_settings,
                 credential_service=active_credential_service,
+                access_policy=active_access_policy,
+                usage_tracker=active_usage_tracker,
             )
 
             if active_conversation_repository is None:
@@ -193,6 +220,9 @@ def create_app(
                     active_credential_service
                 )
                 application.state.model_gateway = active_model_gateway
+                application.state.access_policy = active_access_policy
+                application.state.entitlement_repository = active_entitlement_repository
+                application.state.usage_repository = active_usage_repository
 
                 yield
 
@@ -276,6 +306,13 @@ def create_app(
         model_router,
         prefix="/api/v1",
         tags=["Model Access"],
+        dependencies=protected_dependencies,
+    )
+
+    application.include_router(
+        usage_router,
+        prefix="/api/v1",
+        tags=["Usage"],
         dependencies=protected_dependencies,
     )
 

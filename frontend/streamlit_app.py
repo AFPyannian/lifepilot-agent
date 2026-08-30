@@ -247,10 +247,10 @@ with st.sidebar:
         if model_access is not None:
             available_modes: list[str] = []
 
-            if model_access.get("platform_enabled"):
+            if model_access.get("platform_allowed"):
                 available_modes.append("PLATFORM")
 
-            if model_access.get("byok_enabled") and model_access.get("byok_configured"):
+            if model_access.get("byok_allowed"):
                 available_modes.append("BYOK")
 
             if available_modes:
@@ -277,6 +277,12 @@ with st.sidebar:
                 )
             else:
                 st.error("当前账号没有可用的模型模式。")
+
+            if not model_access.get("platform_allowed"):
+                st.caption(f"平台模型：{model_access.get('platform_reason')}")
+
+            if not model_access.get("byok_allowed"):
+                st.caption(f"自带 Key：{model_access.get('byok_reason')}")
 
             credential_status = model_access.get("byok_status")
 
@@ -355,6 +361,20 @@ with st.sidebar:
                             st.rerun()
                         except LifePilotApiError as error:
                             st.error(str(error))
+
+    with st.expander("模型用量"):
+        try:
+            usage = client.get_usage_summary()
+            col_calls, col_tokens = st.columns(2)
+            col_calls.metric("成功调用", usage["successful_calls"])
+            col_tokens.metric("总 Token", usage["total_tokens"])
+            st.caption(
+                f"平台 {usage['platform_calls']} 次 · "
+                f"自带 Key {usage['byok_calls']} 次 · "
+                f"失败 {usage['failed_calls']} 次"
+            )
+        except (KeyError, LifePilotApiError) as error:
+            st.warning(str(error))
 
     if current_user.get("role") == "admin":
         with st.expander("注册邀请"):

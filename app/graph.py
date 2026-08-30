@@ -31,6 +31,7 @@ from app.tools import (
     create_note_tools,
     create_todo_tools,
 )
+from app.usage.models import ModelInvocationContext
 
 logger = logging.getLogger("lifepilot.graph")
 
@@ -304,10 +305,14 @@ def build_graph(
 
         try:
             response = active_model_gateway.invoke(
-                user_id=runtime.context.user_id,
-                model_mode=state.get(
-                    "model_mode",
-                    require_settings().default_model_mode,
+                context=ModelInvocationContext(
+                    user_id=runtime.context.user_id,
+                    request_id=runtime.context.request_id,
+                    thread_id=runtime.context.public_thread_id,
+                    model_mode=state.get(
+                        "model_mode",
+                        require_settings().default_model_mode,
+                    ),
                 ),
                 tools=all_tools,
                 messages=messages_for_model,

@@ -116,6 +116,10 @@ ModelGateway 每次调用都重新解析凭据。`PLATFORM` 使用服务端 Secr
 `BYOK/PLATFORM` 模式，不保存 API Key，因此审批中断恢复可以沿用原模式，同时不会
 把 Secret 写入 Checkpoint。
 
+在进入 Agent 和实际调用模型前，AccessPolicy 分别执行入口校验与网关二次校验。
+平台模式要求有效 `model.platform` 授权；BYOK 模式要求实例开关和当前用户的有效凭据。
+每次实际模型调用都会创建独立 usage event，并在成功或失败后完成状态流转。
+
 ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。数据库结果和工具错误都会转换成明确的工具输出，模型不能自行声称某个操作已经成功。
 
 ### 3.4 工具与数据访问
@@ -140,6 +144,8 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 | 账号、Session 和审计事件 | `data/lifepilot.db` | 用户 UUID / Session 摘要 |
 | 一次性注册邀请 | `data/lifepilot.db` | 邀请摘要 / 创建与使用用户 UUID |
 | 用户模型凭据 | `data/lifepilot.db` | 用户 UUID + provider，加密密文与掩码元数据 |
+| 能力授权 | `data/lifepilot.db` | 用户 UUID + capability，可过期、可撤销、可审计来源 |
+| 模型用量事件 | `data/lifepilot.db` | 请求、会话、模式、结果、耗时与可选 Token |
 | LangGraph 消息与执行位置 | `data/checkpoints.db` | 用户 UUID + 公开 thread ID |
 | 会话索引和消息记录 | `data/lifepilot.db` | 用户 UUID + thread ID |
 | 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | 用户 UUID |

@@ -122,6 +122,18 @@ python -m scripts.user_admin status --username alice --status active
 python -m scripts.user_admin reset-password --username alice
 ```
 
+### 平台模型授权
+
+账号启用不等于自动获得平台模型。升级到本阶段时，数据库中既有的启用账号会获得一次性 `migration` 授权；之后注册的账号需要配置 BYOK，或由本地管理员发放 `model.platform`：
+
+```powershell
+python -m scripts.entitlement_admin list --username alice
+python -m scripts.entitlement_admin grant --username alice --granted-by admin --capability model.platform --expires-in-days 30
+python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
+```
+
+省略 `--expires-in-days` 表示不自动过期。授权人必须是数据库中启用状态的管理员。
+
 以下端点保持公开：
 
 - `/api/v1/auth/login`

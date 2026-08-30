@@ -216,6 +216,28 @@ class LifePilotApiClient:
             path="/api/v1/model/access",
         )
 
+    def get_usage_summary(self) -> dict[str, Any]:
+        """读取当前账号本月的模型调用用量。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/usage/summary",
+        )
+
+    def list_usage_events(self, limit: int = 20) -> list[dict[str, Any]]:
+        """读取当前账号最近的模型调用事件。"""
+        response = self._request(
+            method="GET",
+            path="/api/v1/usage/events",
+            params={"limit": limit},
+        )
+        try:
+            data = response.json()
+        except ValueError as error:
+            raise LifePilotApiError("后端返回了无法解析的用量事件。") from error
+        if not isinstance(data, list):
+            raise LifePilotApiError("后端返回了无效的用量事件。")
+        return data
+
     def get_deepseek_credential(self) -> dict[str, Any]:
         """读取当前账号的掩码 DeepSeek 凭据元数据。"""
         return self._request_json(

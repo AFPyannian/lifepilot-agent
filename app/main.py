@@ -2,9 +2,11 @@
 
 import logging
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, ToolMessage
 
+from app.access.policy import AccessPolicy
 from app.checkpointing import open_sqlite_checkpointer
 from app.config import apply_runtime_environment, get_settings
 from app.credentials.crypto import CredentialCipher
@@ -16,9 +18,13 @@ from app.logging_config import configure_logging, shutdown_logging
 from app.model import DeepSeekCredentialValidator
 from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
+from app.repositories.auth_repository import AuthRepository
+from app.repositories.entitlement_repository import EntitlementRepository
 from app.repositories.provider_credential_repository import (
     ProviderCredentialRepository,
 )
+from app.repositories.usage_repository import UsageRepository
+from app.usage.service import UsageTracker
 
 logger = logging.getLogger("lifepilot.main")
 
@@ -99,7 +105,11 @@ def run_chat(
     """运行支持中断恢复的命令行多轮会话。"""
 
     config = checkpoint_config(user_id, thread_id)
-    context = AgentContext(user_id=user_id)
+    context = AgentContext(
+        user_id=user_id,
+        request_id=f"cli:recovery:{uuid4()}",
+        public_thread_id=thread_id,
+    )
 
     print(
         f"\nLifePilot 已启动，输入 exit、quit 或 退出，可以结束程序。当前会话ID：{thread_id}"
@@ -169,6 +179,11 @@ def run_chat(
         print("\nLifePilot 正在思考……")
 
         try:
+            context = AgentContext(
+                user_id=user_id,
+                request_id=f"cli:{uuid4()}",
+                public_thread_id=thread_id,
+            )
             result = graph.invoke(
                 {
                     "messages": [
@@ -280,9 +295,20 @@ def main() -> None:
                 ),
                 validator=DeepSeekCredentialValidator(settings),
             )
+            auth_repository = AuthRepository(settings.app_database_path)
+            entitlement_repository = EntitlementRepository(settings.app_database_path)
+            usage_repository = UsageRepository(settings.app_database_path)
+            access_policy = AccessPolicy(
+                settings=settings,
+                auth_repository=auth_repository,
+                entitlement_repository=entitlement_repository,
+                credential_service=credential_service,
+            )
             model_gateway = DeepSeekModelGateway(
                 settings=settings,
                 credential_service=credential_service,
+                access_policy=access_policy,
+                usage_tracker=UsageTracker(usage_repository),
             )
             graph = build_graph(
                 settings=settings,

@@ -7,19 +7,16 @@ from typing import Any, Protocol
 from langchain_core.messages import AnyMessage
 from langchain_core.tools import BaseTool
 
+from app.access.models import Capability
+from app.access.policy import AccessPolicyProtocol
 from app.config import Settings
-from app.credentials.models import ModelMode
 from app.credentials.service import ProviderCredentialService
 from app.exceptions import ModelServiceError
 from app.model import create_model
+from app.usage.models import ModelInvocationContext, UsageEvent
+from app.usage.service import UsageTracker
 
 logger = logging.getLogger("lifepilot.model_gateway")
-
-
-class ModelAccessDeniedError(ModelServiceError):
-    """表示请求的模型模式未启用或不可使用。"""
-
-    default_user_message = "当前模型模式不可用。"
 
 
 class ModelGateway(Protocol):
@@ -28,8 +25,7 @@ class ModelGateway(Protocol):
     def invoke(
         self,
         *,
-        user_id: str,
-        model_mode: ModelMode,
+        context: ModelInvocationContext,
         tools: Sequence[BaseTool],
         messages: list[AnyMessage],
     ) -> AnyMessage:
@@ -46,12 +42,11 @@ class StaticModelGateway:
     def invoke(
         self,
         *,
-        user_id: str,
-        model_mode: ModelMode,
+        context: ModelInvocationContext,
         tools: Sequence[BaseTool],
         messages: list[AnyMessage],
     ) -> AnyMessage:
-        del user_id, model_mode
+        del context
         return self._model.bind_tools(tools).invoke(messages)
 
 
@@ -63,70 +58,121 @@ class DeepSeekModelGateway:
         *,
         settings: Settings,
         credential_service: ProviderCredentialService,
+        access_policy: AccessPolicyProtocol,
+        usage_tracker: UsageTracker,
     ) -> None:
         self._settings = settings
         self._credential_service = credential_service
+        self._access_policy = access_policy
+        self._usage_tracker = usage_tracker
 
     def invoke(
         self,
         *,
-        user_id: str,
-        model_mode: ModelMode,
+        context: ModelInvocationContext,
         tools: Sequence[BaseTool],
         messages: list[AnyMessage],
     ) -> AnyMessage:
         """每次请求重新解析凭据，避免跨用户缓存 Secret。"""
         credential_id: str | None = None
+        event: UsageEvent | None = None
 
-        if model_mode == "BYOK":
-            if not self._settings.byok_enabled:
-                raise ModelAccessDeniedError("BYOK mode is disabled.")
-
-            credential = self._credential_service.resolve_active(user_id=user_id)
+        if context.model_mode == "BYOK":
+            self._access_policy.authorize(
+                user_id=context.user_id,
+                capability=Capability.MODEL_BYOK,
+            )
+            credential = self._credential_service.resolve_active(
+                user_id=context.user_id
+            )
             credential_id = credential.credential_id
             api_key = credential.secret
-        elif model_mode == "PLATFORM":
-            if (
-                not self._settings.platform_model_enabled
-                or self._settings.deepseek_api_key is None
-            ):
-                raise ModelAccessDeniedError("Platform model is disabled.")
-
+        elif context.model_mode == "PLATFORM":
+            self._access_policy.authorize(
+                user_id=context.user_id,
+                capability=Capability.MODEL_PLATFORM,
+            )
+            if self._settings.deepseek_api_key is None:
+                raise ModelServiceError("Platform credential is unavailable.")
             api_key = self._settings.deepseek_api_key
         else:
-            raise ModelAccessDeniedError("Unknown model mode.")
+            raise ModelServiceError("Unknown model mode.")
 
         try:
             model = create_model(self._settings, api_key=api_key)
+            event = self._usage_tracker.start(
+                context=context,
+                model=self._settings.deepseek_model,
+            )
             response = model.bind_tools(tools).invoke(messages)
-        except ModelAccessDeniedError:
-            raise
         except Exception as error:
             status_code = self._extract_status_code(error)
 
             if (
-                model_mode == "BYOK"
+                context.model_mode == "BYOK"
                 and credential_id is not None
                 and status_code in {401, 403}
             ):
-                self._credential_service.mark_invalid(credential_id)
+                try:
+                    self._credential_service.mark_invalid(credential_id)
+                except Exception:
+                    logger.warning(
+                        "Credential invalidation failed credential_id=%s",
+                        credential_id,
+                    )
+
+            if event is not None:
+                try:
+                    self._usage_tracker.fail(
+                        event,
+                        self._error_code(status_code),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Usage event finalization failed event_id=%s status=failed",
+                        event.event_id,
+                    )
 
             logger.warning(
                 (
                     "DeepSeek invocation failed user_id=%s mode=%s "
                     "error_type=%s status_code=%s"
                 ),
-                user_id,
-                model_mode,
+                context.user_id,
+                context.model_mode,
                 type(error).__name__,
                 status_code,
             )
             raise ModelServiceError("DeepSeek invocation failed.") from None
 
+        try:
+            self._usage_tracker.succeed(event, response)
+        except Exception:
+            logger.warning(
+                "Usage event finalization failed event_id=%s status=succeeded",
+                event.event_id,
+            )
+
         if credential_id is not None:
-            self._credential_service.mark_used(credential_id)
+            try:
+                self._credential_service.mark_used(credential_id)
+            except Exception:
+                logger.warning(
+                    "Credential last-used update failed credential_id=%s",
+                    credential_id,
+                )
 
         return response
+
+    @staticmethod
+    def _error_code(status_code: int | None) -> str:
+        if status_code in {401, 403}:
+            return "provider_auth"
+        if status_code == 429:
+            return "provider_rate_limit"
+        if status_code is not None and status_code >= 500:
+            return "provider_unavailable"
+        return "provider_error"
 
     @staticmethod
     def _extract_status_code(error: Exception) -> int | None:

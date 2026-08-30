@@ -20,6 +20,8 @@
 | API | FastAPI、SSE 流式响应、会话及知识库管理接口 |
 | Web 界面 | Streamlit 聊天、会话、知识库和审批交互 |
 | 安全 | Bearer Session、登录防爆破、审计日志、限流和安全响应头 |
+| 能力授权 | AccessPolicy 集中判断账号、BYOK 与平台模型权限 |
+| 模型用量 | 按真实模型调用记录模式、结果、耗时与 Token，不保存消息正文 |
 | 可观测性 | 结构化日志、Request ID、可选 LangSmith 追踪 |
 | 工程质量 | pytest、branch coverage、Ruff、mypy、pre-commit 和 CI |
 
@@ -102,12 +104,14 @@ sequenceDiagram
 lifepilot-agent/
 ├── app/
 │   ├── api/                 # FastAPI 路由、中间件、认证和流式响应
+│   ├── access/              # 能力、授权记录与集中访问策略
 │   ├── auth/                # 密码哈希、Session 服务和登录限流
 │   ├── clients/             # Streamlit 使用的后端 API 客户端
 │   ├── credentials/         # 用户模型凭据加密与生命周期管理
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
 │   ├── repositories/        # SQLite 数据访问层
 │   ├── tools/               # Agent 工具
+│   ├── usage/               # 模型调用上下文与用量追踪
 │   ├── graph.py             # LangGraph 状态与执行图
 │   ├── config.py            # 集中配置和校验
 │   └── main.py              # 命令行入口
@@ -198,6 +202,16 @@ python -m scripts.user_admin create --username alice --role user
 python -m scripts.user_admin status --username alice --status disabled
 python -m scripts.user_admin reset-password --username alice
 ```
+
+平台模型权限独立于账号状态。升级前已经存在的启用账号会通过一次性迁移保留平台模型权限；之后注册的账号需要管理员显式授权，或配置自己的 DeepSeek Key：
+
+```powershell
+python -m scripts.entitlement_admin list --username alice
+python -m scripts.entitlement_admin grant --username alice --granted-by admin --capability model.platform
+python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
+```
+
+Web 侧“模型用量”展示当前月成功、失败调用和 Token 汇总。原始事件也可通过 `GET /api/v1/usage/events` 查询，接口始终按当前 Session 用户隔离。
 
 Streamlit 登录后只在当前浏览器 Session 中保存访问令牌。完整配置见 [配置说明](docs/configuration.md)。
 
@@ -324,6 +338,8 @@ python -m evaluations.run_agent_eval --case add_todo
 - 注册用户固定为普通用户，客户端不能指定角色、状态或用户 ID。
 - 用户模型 Key 先受控验证后加密保存，API 不提供原文读取或导出。
 - 模型网关按认证用户选择 BYOK 或平台 Key，单个用户凭据失效不影响其他用户。
+- API 入口和模型网关都通过 AccessPolicy 校验能力，避免绕过界面直接调用。
+- 模型调用事件使用唯一事件 ID 幂等写入，不记录消息正文、API Key 或金额。
 - 当前限流状态不跨进程共享，服务重启后会清空。
 
 ## 项目定位与限制
@@ -332,6 +348,7 @@ LifePilot Agent 是支持多个本地账号的工程化作品，不是面向公�
 
 - 使用 SQLite 和本地 Chroma，不支持多实例共享状态。
 - 不提供公开匿名注册、OAuth、完整用户管理后台或细粒度 RBAC；管理员仅可通过 Web 管理一次性注册邀请。
+- 当前阶段不实现钱包、余额、账本、支付订单或扣费，平台权限只由授权记录表达。
 - 限流器位于进程内，不适用于分布式部署。
 - Session 是数据库中的不透明令牌；公网部署仍必须使用 HTTPS。
 - 知识库文件和长期记忆由本地管理员自行管理及备份。

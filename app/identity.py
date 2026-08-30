@@ -10,6 +10,8 @@ class AgentContext:
     """保存单次 Agent 执行所属的服务端用户。"""
 
     user_id: str
+    request_id: str = "local"
+    public_thread_id: str = "main"
 
 
 def checkpoint_thread_id(
