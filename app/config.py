@@ -74,6 +74,35 @@ class Settings(BaseSettings):
         le=720,
     )
 
+    infrastructure_mode: Literal["local", "production"] = "local"
+    database_url: SecretStr | None = None
+    checkpoint_database_url: SecretStr | None = None
+    database_pool_size: int = Field(default=10, ge=1, le=100)
+    database_max_overflow: int = Field(default=20, ge=0, le=200)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60)
+
+    redis_url: SecretStr | None = None
+    redis_key_prefix: str = Field(default="lifepilot", min_length=1, max_length=64)
+
+    object_storage_endpoint_url: str | None = None
+    object_storage_region: str = Field(default="us-east-1", min_length=1)
+    object_storage_bucket: str = Field(
+        default="lifepilot-knowledge",
+        min_length=3,
+    )
+    object_storage_access_key: SecretStr | None = None
+    object_storage_secret_key: SecretStr | None = None
+    object_storage_secure: bool = True
+    object_storage_sse: Literal["none", "AES256"] = "AES256"
+
+    celery_broker_url: SecretStr | None = None
+    celery_result_backend: SecretStr | None = None
+    knowledge_worker_queue: str = Field(default="knowledge", min_length=1)
+    knowledge_task_max_retries: int = Field(default=3, ge=0, le=10)
+
+    embedding_dimension: int = Field(default=512, gt=0)
+    thread_lock_wait_seconds: float = Field(default=5.0, gt=0, le=60)
+
     app_database_path: Path = PROJECT_ROOT / "data" / "lifepilot.db"
 
     checkpoint_database_path: Path = PROJECT_ROOT / "data" / "checkpoints.db"
@@ -244,6 +273,34 @@ class Settings(BaseSettings):
 
         if self.langsmith_tracing and not self.langsmith_project.strip():
             raise ValueError("启用LangSmith追踪时项目名称不能为空")
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_production_infrastructure(self) -> "Settings":
+        """生产模式必须显式配置共享基础设施。"""
+        if self.infrastructure_mode != "production":
+            return self
+
+        required_secrets = {
+            "DATABASE_URL": self.database_url,
+            "CHECKPOINT_DATABASE_URL": self.checkpoint_database_url,
+            "REDIS_URL": self.redis_url,
+            "OBJECT_STORAGE_ACCESS_KEY": self.object_storage_access_key,
+            "OBJECT_STORAGE_SECRET_KEY": self.object_storage_secret_key,
+            "CELERY_BROKER_URL": self.celery_broker_url,
+            "CELERY_RESULT_BACKEND": self.celery_result_backend,
+        }
+        missing = [
+            name
+            for name, value in required_secrets.items()
+            if value is None or not value.get_secret_value().strip()
+        ]
+        if missing:
+            raise ValueError("生产基础设施配置缺失：" + ", ".join(missing))
+
+        if self.embedding_dimension != 512:
+            raise ValueError("当前 pgvector 迁移要求 EMBEDDING_DIMENSION=512")
 
         return self
 

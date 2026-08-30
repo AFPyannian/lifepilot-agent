@@ -1,15 +1,15 @@
 """创建并配置 LifePilot FastAPI 应用。"""
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from datetime import UTC, datetime
-from threading import Lock
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, status
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from swagger_ui_bundle import swagger_ui_path  # type: ignore[import-untyped]
 
 from app.access.policy import AccessPolicy, AccessPolicyProtocol, AllowAllAccessPolicy
@@ -26,20 +26,36 @@ from app.api.security import require_current_user
 from app.api.usage_routes import router as usage_router
 from app.auth.rate_limit import LoginRateLimiter
 from app.auth.service import AuthService
-from app.checkpointing import open_sqlite_checkpointer
+from app.checkpointing import open_postgres_checkpointer, open_sqlite_checkpointer
 from app.config import Settings, apply_runtime_environment, get_settings
 from app.credentials.crypto import CredentialCipher
 from app.credentials.service import ProviderCredentialService
+from app.database import Database
+from app.exceptions import ExecutionBusyError
 from app.graph import build_graph
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
+from app.knowledge.production_service import ProductionKnowledgeService
+from app.locks import LocalExecutionLock, PostgresExecutionLock
 from app.logging_config import configure_logging, shutdown_logging
 from app.model import DeepSeekCredentialValidator
 from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
+from app.redis_rate_limit import RedisApiRateLimiter, RedisLoginRateLimiter
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.conversation_repository import ConversationRepository
 from app.repositories.entitlement_repository import EntitlementRepository
+from app.repositories.postgres import (
+    PostgresAuditRepository,
+    PostgresAuthRepository,
+    PostgresConversationRepository,
+    PostgresEntitlementRepository,
+    PostgresNoteRepository,
+    PostgresProviderCredentialRepository,
+    PostgresTodoRepository,
+    PostgresUsageRepository,
+    PostgresUserMemoryRepository,
+)
 from app.repositories.provider_credential_repository import (
     ProviderCredentialRepository,
 )
@@ -70,11 +86,14 @@ def create_app(
 
         if agent_graph is not None:
             application.state.agent_graph = agent_graph
-            application.state.graph_lock = Lock()
+            application.state.graph_lock = LocalExecutionLock()
             application.state.settings = settings
             application.state.knowledge_service = knowledge_service
             application.state.conversation_repository = active_conversation_repository
             application.state.auth_service = auth_service
+            application.state.auth_repository = getattr(
+                auth_service, "_repository", None
+            )
             application.state.audit_repository = audit_repository
             application.state.login_rate_limiter = (
                 login_rate_limiter
@@ -108,8 +127,59 @@ def create_app(
 
         configure_observability(active_settings)
 
+        active_database: Database | None = None
+        active_api_rate_limiter: RedisApiRateLimiter | None = None
+        active_redis_auth_limiters: list[RedisLoginRateLimiter] = []
         try:
-            active_auth_repository = AuthRepository(active_settings.app_database_path)
+            active_auth_repository: AuthRepository
+            active_credential_repository: ProviderCredentialRepository
+            if active_settings.infrastructure_mode == "production":
+                active_database = Database(active_settings)
+                active_auth_repository = PostgresAuthRepository(active_database)
+                active_audit_repository = audit_repository or PostgresAuditRepository(
+                    active_database
+                )
+                active_credential_repository = PostgresProviderCredentialRepository(
+                    active_database
+                )
+                active_entitlement_repository = (
+                    entitlement_repository
+                    or PostgresEntitlementRepository(active_database)
+                )
+                active_usage_repository = usage_repository or PostgresUsageRepository(
+                    active_database
+                )
+                active_todo_repository = PostgresTodoRepository(active_database)
+                active_note_repository = PostgresNoteRepository(active_database)
+                active_memory_repository = PostgresUserMemoryRepository(active_database)
+                if active_conversation_repository is None:
+                    active_conversation_repository = PostgresConversationRepository(
+                        active_database
+                    )
+            else:
+                active_auth_repository = AuthRepository(
+                    active_settings.app_database_path
+                )
+                active_audit_repository = audit_repository or AuditRepository(
+                    active_settings.app_database_path
+                )
+                active_credential_repository = ProviderCredentialRepository(
+                    active_settings.app_database_path
+                )
+                active_entitlement_repository = (
+                    entitlement_repository
+                    or EntitlementRepository(active_settings.app_database_path)
+                )
+                active_usage_repository = usage_repository or UsageRepository(
+                    active_settings.app_database_path
+                )
+                active_todo_repository = None
+                active_note_repository = None
+                active_memory_repository = None
+                if active_conversation_repository is None:
+                    active_conversation_repository = ConversationRepository(
+                        active_settings.app_database_path
+                    )
 
             active_auth_service = auth_service or AuthService(
                 repository=active_auth_repository,
@@ -120,28 +190,54 @@ def create_app(
                 registration_mode=active_settings.registration_mode,
             )
 
-            active_audit_repository = audit_repository or AuditRepository(
-                active_settings.app_database_path
-            )
-
-            active_login_rate_limiter = login_rate_limiter or LoginRateLimiter(
-                max_failures=active_settings.auth_login_max_failures,
-                window_seconds=active_settings.auth_login_window_seconds,
-            )
-
-            active_registration_rate_limiter = (
-                registration_rate_limiter
-                or LoginRateLimiter(
-                    max_failures=(active_settings.auth_registration_max_failures),
-                    window_seconds=(active_settings.auth_registration_window_seconds),
+            if (
+                active_settings.infrastructure_mode == "production"
+                and active_settings.redis_url is not None
+            ):
+                redis_url = active_settings.redis_url.get_secret_value()
+                active_api_rate_limiter = RedisApiRateLimiter(
+                    redis_url, active_settings.redis_key_prefix
                 )
-            )
+                active_login_rate_limiter = login_rate_limiter or RedisLoginRateLimiter(
+                    redis_url,
+                    f"{active_settings.redis_key_prefix}:login",
+                    active_settings.auth_login_max_failures,
+                    active_settings.auth_login_window_seconds,
+                )
+                active_registration_rate_limiter = (
+                    registration_rate_limiter
+                    or RedisLoginRateLimiter(
+                        redis_url,
+                        f"{active_settings.redis_key_prefix}:registration",
+                        active_settings.auth_registration_max_failures,
+                        active_settings.auth_registration_window_seconds,
+                    )
+                )
+                active_redis_auth_limiters = [
+                    limiter
+                    for limiter in (
+                        active_login_rate_limiter,
+                        active_registration_rate_limiter,
+                    )
+                    if isinstance(limiter, RedisLoginRateLimiter)
+                ]
+            else:
+                active_login_rate_limiter = login_rate_limiter or LoginRateLimiter(
+                    max_failures=active_settings.auth_login_max_failures,
+                    window_seconds=active_settings.auth_login_window_seconds,
+                )
+                active_registration_rate_limiter = (
+                    registration_rate_limiter
+                    or LoginRateLimiter(
+                        max_failures=(active_settings.auth_registration_max_failures),
+                        window_seconds=(
+                            active_settings.auth_registration_window_seconds
+                        ),
+                    )
+                )
 
             active_auth_repository.delete_expired_sessions(datetime.now(UTC))
 
-            active_credential_repository = ProviderCredentialRepository(
-                active_settings.app_database_path
-            )
             credential_keyring = active_settings.provider_credential_keyring()
             credential_cipher = (
                 CredentialCipher(
@@ -161,13 +257,6 @@ def create_app(
                     validator=DeepSeekCredentialValidator(active_settings),
                 )
             )
-            active_entitlement_repository = (
-                entitlement_repository
-                or EntitlementRepository(active_settings.app_database_path)
-            )
-            active_usage_repository = usage_repository or UsageRepository(
-                active_settings.app_database_path
-            )
             active_access_policy = access_policy or AccessPolicy(
                 settings=active_settings,
                 auth_repository=active_auth_repository,
@@ -182,24 +271,49 @@ def create_app(
                 usage_tracker=active_usage_tracker,
             )
 
-            if active_conversation_repository is None:
-                active_conversation_repository = ConversationRepository(
-                    active_settings.app_database_path
+            active_knowledge_service: Any
+            if knowledge_service is not None:
+                active_knowledge_service = knowledge_service
+            elif active_database is not None:
+                active_knowledge_service = ProductionKnowledgeService(
+                    active_database, active_settings
+                )
+            else:
+                active_knowledge_service = create_knowledge_base_service(
+                    active_settings
                 )
 
-            active_knowledge_service = (
-                knowledge_service or create_knowledge_base_service(active_settings)
-            )
+            if active_database is not None:
+                active_database.ping()
+                if active_api_rate_limiter is not None:
+                    await active_api_rate_limiter.ping()
+                active_knowledge_service.ping()
 
             # Checkpointer 连接必须覆盖整个应用生命周期。
-            with open_sqlite_checkpointer(
-                active_settings.checkpoint_database_path
-            ) as active_checkpointer:
+            with ExitStack() as stack:
+                active_checkpointer: BaseCheckpointSaver[Any]
+                if active_settings.infrastructure_mode == "production":
+                    if active_settings.checkpoint_database_url is None:
+                        raise RuntimeError("CHECKPOINT_DATABASE_URL 尚未配置")
+                    active_checkpointer = stack.enter_context(
+                        open_postgres_checkpointer(
+                            active_settings.checkpoint_database_url.get_secret_value()
+                        )
+                    )
+                else:
+                    active_checkpointer = stack.enter_context(
+                        open_sqlite_checkpointer(
+                            active_settings.checkpoint_database_path
+                        )
+                    )
                 graph = build_graph(
                     settings=active_settings,
                     checkpointer=active_checkpointer,
                     knowledge_service=active_knowledge_service,
                     model_gateway=active_model_gateway,
+                    todo_repository=active_todo_repository,
+                    note_repository=active_note_repository,
+                    memory_repository=active_memory_repository,
                 )
 
                 application.state.settings = active_settings
@@ -209,8 +323,17 @@ def create_app(
                 )
                 application.state.checkpointer = active_checkpointer
                 application.state.agent_graph = graph
-                application.state.graph_lock = Lock()
+                application.state.graph_lock = (
+                    PostgresExecutionLock(
+                        active_database,
+                        active_settings.thread_lock_wait_seconds,
+                    )
+                    if active_database is not None
+                    else LocalExecutionLock()
+                )
+                application.state.database = active_database
                 application.state.auth_service = active_auth_service
+                application.state.auth_repository = active_auth_repository
                 application.state.audit_repository = active_audit_repository
                 application.state.login_rate_limiter = active_login_rate_limiter
                 application.state.registration_rate_limiter = (
@@ -223,10 +346,17 @@ def create_app(
                 application.state.access_policy = active_access_policy
                 application.state.entitlement_repository = active_entitlement_repository
                 application.state.usage_repository = active_usage_repository
+                application.state.api_rate_limiter = active_api_rate_limiter
 
                 yield
 
         finally:
+            if active_api_rate_limiter is not None:
+                await active_api_rate_limiter.close()
+            for limiter in active_redis_auth_limiters:
+                limiter.close()
+            if active_database is not None:
+                active_database.close()
             shutdown_logging()
 
     application = FastAPI(
@@ -239,6 +369,17 @@ def create_app(
 
     application.add_middleware(SlidingWindowRateLimitMiddleware)
     application.add_middleware(RequestContextMiddleware)
+
+    @application.exception_handler(ExecutionBusyError)
+    async def execution_busy_handler(
+        _request: Any, error: ExecutionBusyError
+    ) -> JSONResponse:
+        """将跨实例锁超时转换成可重试的冲突响应。"""
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": error.user_message},
+            headers={"Retry-After": "1"},
+        )
 
     application.mount(
         "/docs-assets",

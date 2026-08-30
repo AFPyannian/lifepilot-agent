@@ -154,6 +154,35 @@ class UsageRepository:
             platform_calls=int(row["platform_calls"] or 0),
         )
 
+    def summarize_all(self, *, since: datetime, until: datetime) -> dict[str, int]:
+        """返回管理员使用的全局用量与活跃用户汇总。"""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(DISTINCT user_id) AS active_users,
+                       COUNT(DISTINCT request_id) AS requests,
+                       SUM(status = 'succeeded') AS successful_calls,
+                       SUM(status = 'failed') AS failed_calls,
+                       COALESCE(SUM(total_tokens), 0) AS total_tokens,
+                       SUM(status = 'succeeded' AND credential_mode = 'BYOK')
+                           AS byok_calls,
+                       SUM(status = 'succeeded' AND credential_mode = 'PLATFORM')
+                           AS platform_calls
+                FROM usage_events
+                WHERE started_at >= ? AND started_at < ?
+                """,
+                (since.isoformat(), until.isoformat()),
+            ).fetchone()
+        return {
+            "active_users": int(row["active_users"] or 0),
+            "requests": int(row["requests"] or 0),
+            "successful_calls": int(row["successful_calls"] or 0),
+            "failed_calls": int(row["failed_calls"] or 0),
+            "total_tokens": int(row["total_tokens"] or 0),
+            "byok_calls": int(row["byok_calls"] or 0),
+            "platform_calls": int(row["platform_calls"] or 0),
+        }
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=10)
         connection.row_factory = sqlite3.Row

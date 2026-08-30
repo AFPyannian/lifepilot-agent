@@ -28,6 +28,7 @@ from app.api.security import CurrentUser
 from app.api.streaming import stream_chat_events
 from app.credentials.errors import CredentialError
 from app.exceptions import LifePilotError, ModelServiceError
+from app.locks import execution_scope
 
 logger = logging.getLogger("lifepilot.api")
 
@@ -68,7 +69,7 @@ def chat(
             message=payload.message,
         )
 
-        with graph_lock:
+        with execution_scope(graph_lock, current_user.user_id, payload.thread_id):
             pending_interrupt = find_pending_interrupt(
                 graph=graph,
                 config=config,
@@ -276,7 +277,7 @@ def resume_chat(
             thread_id=payload.thread_id,
         )
 
-        with graph_lock:
+        with execution_scope(graph_lock, current_user.user_id, payload.thread_id):
             existing_interrupt = find_pending_interrupt(
                 graph=graph,
                 config=config,

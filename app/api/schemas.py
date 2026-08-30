@@ -62,6 +62,8 @@ class KnowledgeDocumentResponse(BaseModel):
     filename: str
     chunk_count: int
     already_indexed: bool
+    status: str | None = None
+    task_id: str | None = None
 
 
 class KnowledgeDocumentItem(BaseModel):
@@ -69,6 +71,7 @@ class KnowledgeDocumentItem(BaseModel):
 
     filename: str
     chunk_count: int
+    status: str | None = None
 
 
 class KnowledgeListResponse(BaseModel):
@@ -82,6 +85,90 @@ class KnowledgeDeleteResponse(BaseModel):
 
     filename: str
     deleted: bool
+
+
+class AdminUserItem(BaseModel):
+    """表示管理员后台的一条账号摘要。"""
+
+    id: str
+    username: str
+    role: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminUserListResponse(BaseModel):
+    """表示管理员账号列表。"""
+
+    users: list[AdminUserItem]
+
+
+class AdminUserStatusRequest(BaseModel):
+    """表示管理员启用或禁用账号的请求。"""
+
+    status: Literal["active", "disabled"]
+
+
+class AdminAuditEventItem(BaseModel):
+    """表示不含消息正文和秘密的后台审计事件。"""
+
+    id: str
+    request_id: str
+    user_id: str | None
+    action: str
+    resource_type: str
+    resource_id: str | None
+    outcome: str
+    created_at: datetime
+
+
+class AdminAuditEventListResponse(BaseModel):
+    """表示后台审计事件列表。"""
+
+    events: list[AdminAuditEventItem]
+
+
+class AdminUsageSummaryResponse(BaseModel):
+    """表示指定时间范围的全局模型用量。"""
+
+    since: datetime
+    until: datetime
+    active_users: int
+    requests: int
+    successful_calls: int
+    failed_calls: int
+    total_tokens: int
+    byok_calls: int
+    platform_calls: int
+
+
+class AdminEntitlementRequest(BaseModel):
+    """表示管理员授予能力的请求。"""
+
+    capability: Literal["agent.chat", "model.byok", "model.platform"]
+    expires_at: datetime | None = None
+
+
+class AdminEntitlementItem(BaseModel):
+    """表示一条用户能力授权。"""
+
+    id: str
+    user_id: str
+    capability: str
+    source: str
+    status: str
+    starts_at: datetime
+    expires_at: datetime | None
+    created_by: str | None
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+class AdminEntitlementListResponse(BaseModel):
+    """表示某个用户的能力授权列表。"""
+
+    entitlements: list[AdminEntitlementItem]
 
 
 class ApprovalDecision(BaseModel):

@@ -29,6 +29,7 @@ from app.api.security import CurrentUser
 from app.knowledge.loaders import (
     SUPPORTED_SUFFIXES,
 )
+from app.locks import execution_scope
 
 logger = logging.getLogger("lifepilot.api.knowledge")
 
@@ -65,6 +66,7 @@ WINDOWS_RESERVED_NAMES = {
 @router.post(
     "/knowledge/documents",
     response_model=KnowledgeDocumentResponse,
+    response_model_exclude_none=True,
     summary="上传并导入知识库文档",
 )
 async def upload_knowledge_document(
@@ -80,6 +82,44 @@ async def upload_knowledge_document(
 
     filename = _validate_filename(file.filename)
 
+    if getattr(service, "uses_object_storage", False):
+        try:
+            result, task_id = await run_in_threadpool(
+                service.submit_upload,
+                owner_id=current_user.user_id,
+                filename=filename,
+                source=file.file,
+                content_type=file.content_type,
+            )
+            record_audit_event(
+                request,
+                user_id=current_user.user_id,
+                action="knowledge.upload",
+                resource_type="knowledge_document",
+                resource_id=result.source_name,
+                outcome="queued" if task_id else "already_indexed",
+            )
+            return KnowledgeDocumentResponse(
+                filename=result.source_name,
+                chunk_count=result.chunk_count,
+                already_indexed=result.already_indexed,
+                status=result.status,
+                task_id=task_id,
+            )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(error),
+            ) from error
+        except Exception as error:
+            logger.exception("Knowledge document enqueue failed filename=%s", filename)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="文档已经校验，但后台索引任务提交失败。",
+            ) from error
+        finally:
+            await file.close()
+
     source_path = _safe_source_path(
         source_directory=(settings.knowledge_source_directory),
         user_id=current_user.user_id,
@@ -94,7 +134,7 @@ async def upload_knowledge_document(
         )
 
         def ingest_document() -> Any:
-            with graph_lock:
+            with execution_scope(graph_lock, current_user.user_id, filename):
                 return service.ingest(
                     owner_id=current_user.user_id,
                     filename=filename,
@@ -150,6 +190,7 @@ async def upload_knowledge_document(
 @router.get(
     "/knowledge/documents",
     response_model=KnowledgeListResponse,
+    response_model_exclude_none=True,
     summary="查看知识库文档",
 )
 async def list_knowledge_documents(
@@ -161,7 +202,7 @@ async def list_knowledge_documents(
 
     def list_documents() -> Any:
         """在线程池中读取知识文档列表。"""
-        with graph_lock:
+        with execution_scope(graph_lock, current_user.user_id, "knowledge-list"):
             return service.list_sources(current_user.user_id)
 
     try:
@@ -180,6 +221,11 @@ async def list_knowledge_documents(
             KnowledgeDocumentItem(
                 filename=source.source_name,
                 chunk_count=(source.chunk_count),
+                status=(
+                    source.status
+                    if getattr(service, "uses_object_storage", False)
+                    else None
+                ),
             )
             for source in sources
         ]
@@ -201,15 +247,17 @@ async def delete_knowledge_document(
 
     safe_filename = _validate_filename(filename)
 
-    source_path = _safe_source_path(
-        source_directory=(settings.knowledge_source_directory),
-        user_id=current_user.user_id,
-        filename=safe_filename,
-    )
+    source_path = None
+    if not getattr(service, "uses_object_storage", False):
+        source_path = _safe_source_path(
+            source_directory=(settings.knowledge_source_directory),
+            user_id=current_user.user_id,
+            filename=safe_filename,
+        )
 
     def delete_document() -> bool:
         """在应用锁内完成向量和文件删除。"""
-        with graph_lock:
+        with execution_scope(graph_lock, current_user.user_id, safe_filename):
             vector_deleted = service.delete_source(
                 owner_id=current_user.user_id,
                 filename=safe_filename,
@@ -217,7 +265,11 @@ async def delete_knowledge_document(
 
             file_deleted = False
 
-            if source_path.exists() and source_path.is_file():
+            if (
+                source_path is not None
+                and source_path.exists()
+                and source_path.is_file()
+            ):
                 source_path.unlink()
                 file_deleted = True
 

@@ -30,6 +30,7 @@ from app.api.schemas import (
 )
 from app.api.security import CurrentUser
 from app.identity import checkpoint_config, checkpoint_thread_id
+from app.locks import execution_scope
 
 router = APIRouter()
 
@@ -109,7 +110,7 @@ def get_conversation(
         thread_id,
     )
 
-    with graph_lock:
+    with execution_scope(graph_lock, current_user.user_id, thread_id):
         snapshot = graph.get_state(config)
 
         pending_interrupt = find_pending_interrupt(
@@ -237,7 +238,7 @@ def delete_conversation(
             detail=("Checkpoint服务不可用。"),
         )
 
-    with graph_lock:
+    with execution_scope(graph_lock, current_user.user_id, thread_id):
         checkpointer.delete_thread(
             checkpoint_thread_id(
                 current_user.user_id,

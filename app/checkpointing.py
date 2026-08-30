@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 
@@ -27,3 +28,10 @@ def open_sqlite_checkpointer(database_path: str | Path) -> Iterator[SqliteSaver]
         yield SqliteSaver(connection)
     finally:
         connection.close()
+
+
+@contextmanager
+def open_postgres_checkpointer(database_url: str) -> Iterator[PostgresSaver]:
+    """打开共享 PostgreSQL Checkpointer；表结构须由初始化脚本预建。"""
+    with PostgresSaver.from_conn_string(database_url) as checkpointer:
+        yield checkpointer

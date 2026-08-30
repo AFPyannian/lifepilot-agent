@@ -95,7 +95,7 @@ python -m scripts.rewrap_provider_credentials --from-version v1
 | `AUTH_REGISTRATION_MAX_FAILURES` | 否 | `10` | 注册窗口内允许的失败次数 |
 | `AUTH_REGISTRATION_WINDOW_SECONDS` | 否 | `900` | 注册失败计数窗口秒数 |
 | `AUTH_INVITATION_MAX_TTL_HOURS` | 否 | `720` | 管理员可设置的邀请码最长有效期 |
-| `API_RATE_LIMIT_ENABLED` | 否 | `true` | 是否启用进程内限流 |
+| `API_RATE_LIMIT_ENABLED` | 否 | `true` | 是否启用业务接口限流 |
 | `API_RATE_LIMIT_REQUESTS` | 否 | `60` | 一个时间窗口内允许的请求数 |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | 否 | `60` | 限流窗口秒数 |
 
@@ -144,7 +144,25 @@ python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
 
 登录成功后 API 返回一次原始 Session 令牌，客户端通过 `Authorization: Bearer <token>` 访问其他接口；数据库只保存令牌摘要。Streamlit 仅在当前浏览器 Session 中保存原始令牌，不写入 `.env`、Cookie 或磁盘。
 
-登录失败限流按客户端 IP 和用户名摘要计数，业务限流按 Session 摘要计数。两个限流器都保存在进程内存中，服务重启后计数清空，不支持多 Worker 共享。
+登录失败限流按客户端 IP 和用户名摘要计数，业务限流按 Session 摘要计数。本地模式保存在进程内存中；生产模式使用 Redis 原子脚本跨 Worker 共享。
+
+## 4.1 生产基础设施
+
+`INFRASTRUCTURE_MODE=local` 保持 SQLite、Chroma、本地知识文件和进程内限流。切换为 `production` 后，下列共享组件配置全部必填：
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `DATABASE_URL` | SQLAlchemy PostgreSQL 业务库连接串 |
+| `CHECKPOINT_DATABASE_URL` | LangGraph PostgresSaver 连接串 |
+| `REDIS_URL` | Redis 限流、Celery Broker/结果后端连接地址 |
+| `OBJECT_STORAGE_ENDPOINT_URL` | S3 兼容端点；AWS S3 可留空 |
+| `OBJECT_STORAGE_BUCKET` | 私有知识文件 Bucket |
+| `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY` | 对象存储凭据 |
+| `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Celery Broker 和任务结果地址 |
+| `EMBEDDING_DIMENSION` | 当前迁移固定为 `512` |
+| `THREAD_LOCK_WAIT_SECONDS` | 同一用户会话锁的最长等待秒数 |
+
+数据库、Redis 和对象存储连接会在生产应用启动时检查。完整初始化、迁移、Worker 启动和回滚顺序见[生产部署](production-deployment.md)。
 
 ## 5. Agent 运行限制
 

@@ -26,3 +26,9 @@ class ModelServiceError(LifePilotError):
     """表示语言模型初始化或调用失败。"""
 
     default_user_message = "模型服务暂时不可用，请稍后重试。"
+
+
+class ExecutionBusyError(LifePilotError):
+    """表示同一用户会话正在另一个实例中执行。"""
+
+    default_user_message = "当前会话正在处理另一项请求，请稍后重试。"

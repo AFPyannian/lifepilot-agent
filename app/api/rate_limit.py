@@ -55,6 +55,19 @@ class SlidingWindowRateLimitMiddleware:
         window_start = now - window_seconds
         retry_after: int | None = None
 
+        shared_limiter = getattr(
+            getattr(application, "state", None), "api_rate_limiter", None
+        )
+        if shared_limiter is not None:
+            retry_after = await shared_limiter.check(
+                identifier, request_limit, window_seconds
+            )
+            if retry_after is not None:
+                await self._send_rate_limit_response(send, retry_after)
+                return
+            await self.app(scope, receive, send)
+            return
+
         async with self._lock:
             timestamps = self._requests[identifier]
 

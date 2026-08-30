@@ -94,6 +94,22 @@ class AuthRepository:
             ).fetchone()
         return None if row is None else self._row_to_user(row)
 
+    def list_users(self, limit: int = 100) -> list[UserRecord]:
+        """返回后台账号列表，不包含 Session 或凭据。"""
+        bounded_limit = min(max(limit, 1), 500)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, username, username_normalized, password_hash,
+                       role, status, created_at, updated_at
+                FROM users
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (bounded_limit,),
+            ).fetchall()
+        return [self._row_to_user(row) for row in rows]
+
     def update_password_hash(self, user_id: str, password_hash: str) -> bool:
         """替换用户密码哈希。"""
         timestamp = datetime.now(UTC).isoformat()

@@ -20,6 +20,7 @@ class IngestionResult:
     source_name: str
     chunk_count: int
     already_indexed: bool
+    status: str = "ready"
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class KnowledgeSource:
     source_name: str
     chunk_count: int
     file_hash: str
+    status: str = "ready"
 
 
 class KnowledgeBaseService:

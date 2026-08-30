@@ -171,6 +171,46 @@ class LifePilotApiClient:
         )
         return bool(data.get("revoked"))
 
+    def list_admin_users(self, limit: int = 100) -> list[dict[str, Any]]:
+        """管理员查询用户列表。"""
+        data = self._request_json(
+            method="GET",
+            path="/api/v1/admin/users",
+            params={"limit": limit},
+        )
+        users = data.get("users", [])
+        if not isinstance(users, list):
+            raise LifePilotApiError("后端返回的用户列表格式不正确。")
+        return users
+
+    def update_admin_user_status(self, user_id: str, user_status: str) -> None:
+        """管理员启用或禁用账号。"""
+        self._request(
+            method="PATCH",
+            path=f"/api/v1/admin/users/{quote(user_id, safe='')}/status",
+            json={"status": user_status},
+        )
+
+    def list_admin_audit_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        """管理员查询脱敏审计事件。"""
+        data = self._request_json(
+            method="GET",
+            path="/api/v1/admin/audit-events",
+            params={"limit": limit},
+        )
+        events = data.get("events", [])
+        if not isinstance(events, list):
+            raise LifePilotApiError("后端返回的审计列表格式不正确。")
+        return events
+
+    def get_admin_usage_summary(self, days: int = 30) -> dict[str, Any]:
+        """管理员查询全局模型用量。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/admin/usage/summary",
+            params={"days": days},
+        )
+
     def get_current_user(self) -> dict[str, Any]:
         """读取当前 Session 对应的用户。"""
         return self._request_json(

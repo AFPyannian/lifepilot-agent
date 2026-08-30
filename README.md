@@ -2,7 +2,7 @@
 
 [![Quality](https://github.com/AFPyannian/lifepilot-agent/actions/workflows/quality.yml/badge.svg)](https://github.com/AFPyannian/lifepilot-agent/actions/workflows/quality.yml)
 
-一个支持本地多账号使用的中文生活管理 Agent。项目基于 LangGraph、FastAPI、Streamlit、DeepSeek 和 RAG 构建，支持多轮会话、待办与笔记管理、长期记忆、个人知识库、流式响应，以及敏感删除操作的人工审批。
+一个支持多账号和生产化部署的中文生活管理 Agent。项目基于 LangGraph、FastAPI、Streamlit、DeepSeek 和 RAG 构建，支持多轮会话、待办与笔记管理、长期记忆、个人知识库、流式响应，以及敏感删除操作的人工审批。
 
 该仓库不仅展示 Agent 功能，也完整覆盖状态持久化、错误处理、可观测性、安全边界、自动化测试和代码质量工程。
 
@@ -13,15 +13,16 @@
 | Agent 编排 | LangGraph 状态图驱动模型与工具循环 |
 | 工具调用 | 待办、笔记、用户资料、长期记忆和知识库工具 |
 | 人工审批 | 删除类敏感操作通过 interrupt/resume 暂停并恢复 |
-| 短期记忆 | LangGraph SQLite Checkpointer 按会话保存状态 |
+| 短期记忆 | 本地 SQLite 或生产 PostgresSaver 按用户会话保存状态 |
 | 账号与隔离 | Argon2id 密码、可撤销 Session、用户状态和端到端数据隔离 |
-| 长期记忆 | SQLite 按登录用户 UUID 隔离用户资料与记忆 |
-| RAG | 本地 BGE 中文 Embedding、Chroma 和文档召回 |
+| 长期记忆 | SQLite 或 PostgreSQL 按登录用户 UUID 隔离资料与记忆 |
+| RAG | 本地 Chroma，或 S3 + Celery + pgvector 生产知识链路 |
 | API | FastAPI、SSE 流式响应、会话及知识库管理接口 |
 | Web 界面 | Streamlit 聊天、会话、知识库和审批交互 |
 | 安全 | Bearer Session、登录防爆破、审计日志、限流和安全响应头 |
 | 能力授权 | AccessPolicy 集中判断账号、BYOK 与平台模型权限 |
 | 模型用量 | 按真实模型调用记录模式、结果、耗时与 Token，不保存消息正文 |
+| 生产并发 | Redis 共享限流、PostgreSQL 会话锁、后台向量化和运营后台 |
 | 可观测性 | 结构化日志、Request ID、可选 LangSmith 追踪 |
 | 工程质量 | pytest、branch coverage、Ruff、mypy、pre-commit 和 CI |
 
@@ -36,17 +37,19 @@ flowchart TD
 
     GRAPH --> MODEL[DeepSeek Chat Model]
     GRAPH --> TOOLS[Agent Tools]
-    GRAPH --> CHECKPOINT[(SQLite Checkpoints)]
+    GRAPH --> CHECKPOINT[(SQLite / PostgreSQL Checkpoints)]
 
     TOOLS --> TODO[(Todos)]
     TOOLS --> NOTES[(Notes)]
     TOOLS --> MEMORY[(User Profile & Memory)]
     TOOLS --> RAG[Knowledge Service]
 
-    TODO --> APPDB[(SQLite App Database)]
+    TODO --> APPDB[(SQLite / PostgreSQL)]
     NOTES --> APPDB
     MEMORY --> APPDB
-    RAG --> CHROMA[(Chroma Vector Store)]
+    RAG --> CHROMA[(Chroma / pgvector)]
+    RAG --> OBJECT[(S3 Compatible Storage)]
+    RAG --> WORKER[Celery Worker]
     RAG --> EMBEDDING[Local BGE Embedding]
 ```
 
@@ -82,7 +85,7 @@ sequenceDiagram
     S-->>U: 展示回答
 ```
 
-更多说明见 [系统架构](docs/architecture.md) 和 [关键设计决策](docs/design-decisions.md)。
+更多说明见 [系统架构](docs/architecture.md)、[关键设计决策](docs/design-decisions.md)和[生产部署](docs/production-deployment.md)。
 
 ## 技术栈
 
@@ -91,8 +94,9 @@ sequenceDiagram
 - DeepSeek Chat Model
 - FastAPI / Uvicorn
 - Streamlit
-- SQLite / LangGraph SQLite Checkpointer
-- Chroma / BGE Small ZH v1.5
+- SQLite / PostgreSQL / LangGraph PostgresSaver
+- Chroma / pgvector / BGE Small ZH v1.5
+- Redis / Celery / S3 兼容对象存储
 - Pydantic Settings
 - pytest / pytest-cov
 - Ruff / mypy / pre-commit
@@ -109,7 +113,9 @@ lifepilot-agent/
 │   ├── clients/             # Streamlit 使用的后端 API 客户端
 │   ├── credentials/         # 用户模型凭据加密与生命周期管理
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
-│   ├── repositories/        # SQLite 数据访问层
+│   ├── repositories/        # SQLite 与 PostgreSQL 数据访问层
+│   ├── storage/             # S3 兼容对象存储
+│   ├── tasks/               # Celery 后台任务
 │   ├── tools/               # Agent 工具
 │   ├── usage/               # 模型调用上下文与用量追踪
 │   ├── graph.py             # LangGraph 状态与执行图
@@ -119,6 +125,7 @@ lifepilot-agent/
 ├── evaluations/             # Agent 与 RAG 评估数据及脚本
 ├── tests/                   # 单元测试和集成测试
 ├── scripts/                 # 本地质量检查脚本
+├── migrations/              # Alembic PostgreSQL 迁移
 ├── docs/                    # 架构、配置、测试和设计文档
 └── .github/workflows/       # GitHub Actions CI
 ```
@@ -220,6 +227,8 @@ Streamlit 登录后只在当前浏览器 Session 中保存访问令牌。完整�
 ```powershell
 python -m scripts.migrate_local_user --username admin --confirm
 ```
+
+单机开发默认继续使用 SQLite、Chroma 和本地文件。切换 `INFRASTRUCTURE_MODE=production` 前，按[阶段四生产部署](docs/production-deployment.md)准备 PostgreSQL、Redis、对象存储和 Celery Worker，并执行 Alembic 与 Checkpoint 初始化。
 
 ### 5. 启动后端
 
@@ -340,18 +349,18 @@ python -m evaluations.run_agent_eval --case add_todo
 - 模型网关按认证用户选择 BYOK 或平台 Key，单个用户凭据失效不影响其他用户。
 - API 入口和模型网关都通过 AccessPolicy 校验能力，避免绕过界面直接调用。
 - 模型调用事件使用唯一事件 ID 幂等写入，不记录消息正文、API Key 或金额。
-- 当前限流状态不跨进程共享，服务重启后会清空。
+- 本地模式的限流状态不跨进程共享；生产模式使用 Redis 共享限流。
 
 ## 项目定位与限制
 
-LifePilot Agent 是支持多个本地账号的工程化作品，不是面向公网的分布式 SaaS。当前版本有意保持以下边界：
+LifePilot Agent 同时提供单机开发模式和生产基础设施模式。当前版本仍有意保持以下边界：
 
-- 使用 SQLite 和本地 Chroma，不支持多实例共享状态。
-- 不提供公开匿名注册、OAuth、完整用户管理后台或细粒度 RBAC；管理员仅可通过 Web 管理一次性注册邀请。
+- 本地模式使用 SQLite 和 Chroma，仅适合单实例；生产模式才支持多实例共享状态。
+- 不提供公开匿名注册、OAuth 或细粒度 RBAC；管理员后台覆盖账号、邀请、授权、审计和用量。
 - 当前阶段不实现钱包、余额、账本、支付订单或扣费，平台权限只由授权记录表达。
-- 限流器位于进程内，不适用于分布式部署。
+- 生产部署需要自行运维 PostgreSQL、Redis、对象存储、Celery Worker、HTTPS 和备份。
 - Session 是数据库中的不透明令牌；公网部署仍必须使用 HTTPS。
-- 知识库文件和长期记忆由本地管理员自行管理及备份。
+- 本地和生产数据都需要管理员制定备份与恢复策略。
 - CI 只运行离线自动化测试，不调用真实 DeepSeek API。
 
 这些取舍及后续扩展方向见 [关键设计决策](docs/design-decisions.md)。

@@ -22,6 +22,7 @@ from app.api.interrupts import (
 from app.credentials.errors import CredentialError
 from app.exceptions import LifePilotError, ModelServiceError
 from app.identity import AgentContext
+from app.locks import execution_scope
 
 logger = logging.getLogger("lifepilot.api.streaming")
 
@@ -62,7 +63,7 @@ def stream_chat_events(
     try:
         approval_request: dict[str, Any] | None = None
 
-        with graph_lock:
+        with execution_scope(graph_lock, context.user_id, thread_id):
             pending_interrupt = find_pending_interrupt(
                 graph=graph,
                 config=config,

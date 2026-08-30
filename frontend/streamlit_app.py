@@ -377,6 +377,51 @@ with st.sidebar:
             st.warning(str(error))
 
     if current_user.get("role") == "admin":
+        with st.expander("运营后台"):
+            try:
+                admin_usage = client.get_admin_usage_summary()
+                usage_users, usage_tokens = st.columns(2)
+                usage_users.metric("活跃用户", admin_usage["active_users"])
+                usage_tokens.metric("总 Token", admin_usage["total_tokens"])
+                st.caption(
+                    f"请求 {admin_usage['requests']} 次 · "
+                    f"成功 {admin_usage['successful_calls']} 次 · "
+                    f"失败 {admin_usage['failed_calls']} 次"
+                )
+            except (KeyError, LifePilotApiError) as error:
+                st.warning(str(error))
+
+            try:
+                admin_users = client.list_admin_users()
+            except LifePilotApiError as error:
+                admin_users = []
+                st.warning(str(error))
+
+            for user in admin_users:
+                user_id = user["id"]
+                st.caption(f"{user['username']} · {user['role']} · {user['status']}")
+                target_status = "active" if user["status"] == "disabled" else "disabled"
+                if user_id != current_user.get("id") and st.button(
+                    "启用" if target_status == "active" else "禁用",
+                    key=f"admin-user-status-{user_id}",
+                ):
+                    try:
+                        client.update_admin_user_status(user_id, target_status)
+                        st.success("账号状态已更新。")
+                        st.rerun()
+                    except LifePilotApiError as error:
+                        st.error(str(error))
+
+            st.caption("最近审计事件")
+            try:
+                for event in client.list_admin_audit_events(limit=20):
+                    st.text(
+                        f"{event['created_at']} · {event['action']} · "
+                        f"{event['outcome']}"
+                    )
+            except (KeyError, LifePilotApiError) as error:
+                st.warning(str(error))
+
         with st.expander("注册邀请"):
             expires_in_hours = st.number_input(
                 "有效期（小时）",

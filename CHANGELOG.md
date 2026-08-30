@@ -24,6 +24,11 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Expiring and revocable entitlements with a one-time migration for existing users.
 - Per-model-call usage events, user-scoped usage APIs and Streamlit usage summary.
 - Local administrator CLI for listing, granting and revoking capabilities.
+- PostgreSQL and SQLAlchemy production repositories managed by Alembic migrations.
+- LangGraph PostgresSaver, Redis shared rate limiting and PostgreSQL advisory locks.
+- S3-compatible knowledge source storage, pgvector retrieval and Celery ingestion.
+- Administrator APIs and Streamlit views for users, entitlements, audit and usage.
+- Idempotent SQLite, Checkpoint and local knowledge migration tooling.
 
 ### Changed
 
@@ -32,6 +37,7 @@ The project follows [Semantic Versioning](https://semver.org/).
 - Persisted only the selected model mode in LangGraph state so approval resumes use
   the original credential source.
 - Passed trusted request and public thread identifiers into each model invocation.
+- Kept SQLite, Chroma and local files as an explicit single-instance development mode.
 
 ### Security
 

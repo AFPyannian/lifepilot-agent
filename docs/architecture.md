@@ -222,15 +222,8 @@ flowchart LR
 
 ## 8. 并发模型
 
-应用通过进程内 Lock 保护同一个 graph 实例的关键执行路径。SQLite、Chroma、内存限流器和 Lock 都基于单进程假设，因此当前版本适合本地多账号、单实例运行，不适合直接扩展为多 Worker 或多实例服务。
+本地模式使用按用户与会话分片的进程锁，不再以全局 Lock 串行化所有用户。生产模式使用 PostgreSQL 事务级 advisory lock；同一用户会话串行执行，不同用户和不同会话可并发。
 
-如需扩展，应同时处理：
+生产业务仓储通过 SQLAlchemy 连接池访问 PostgreSQL，LangGraph 使用 PostgresSaver；登录与 API 限流由 Redis 共享。知识源文件进入 S3 兼容对象存储，Celery Worker 异步解析并幂等重建 pgvector 文档块。
 
-- PostgreSQL 或其他共享数据库。
-- Redis Checkpointer 与分布式锁。
-- Redis 限流。
-- 独立向量数据库。
-- 集中式身份服务与细粒度授权模型。
-- 幂等写操作和跨服务追踪。
-
-这些内容不属于当前本地多账号版本的范围。
+应用启动不会自行建业务表。Alembic 管理业务 DDL，LangGraph Checkpoint 表由一次性初始化脚本调用 `setup()` 创建。生产切换与回滚见[生产部署](production-deployment.md)。
