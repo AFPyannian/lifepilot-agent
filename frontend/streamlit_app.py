@@ -57,6 +57,12 @@ def initialize_session_state() -> None:
     if "current_user" not in st.session_state:
         st.session_state.current_user = None
 
+    if "model_mode" not in st.session_state:
+        st.session_state.model_mode = "PLATFORM"
+
+    if "model_mode_initialized" not in st.session_state:
+        st.session_state.model_mode_initialized = False
+
 
 def clear_authenticated_state() -> None:
     """清除当前 Streamlit 会话中的登录和聊天状态。"""
@@ -65,6 +71,8 @@ def clear_authenticated_state() -> None:
     st.session_state.thread_id = create_thread_id()
     st.session_state.messages = []
     st.session_state.pending_approval = None
+    st.session_state.model_mode = "PLATFORM"
+    st.session_state.model_mode_initialized = False
 
 
 @st.cache_data(
@@ -228,6 +236,125 @@ with st.sidebar:
             client.logout()
         clear_authenticated_state()
         st.rerun()
+
+    with st.expander("模型设置"):
+        try:
+            model_access = client.get_model_access()
+        except LifePilotApiError as error:
+            model_access = None
+            st.warning(str(error))
+
+        if model_access is not None:
+            available_modes: list[str] = []
+
+            if model_access.get("platform_enabled"):
+                available_modes.append("PLATFORM")
+
+            if model_access.get("byok_enabled") and model_access.get("byok_configured"):
+                available_modes.append("BYOK")
+
+            if available_modes:
+                default_mode = model_access.get("default_mode")
+
+                if (
+                    not st.session_state.model_mode_initialized
+                    and default_mode in available_modes
+                ):
+                    st.session_state.model_mode = default_mode
+                    st.session_state.model_mode_initialized = True
+
+                if st.session_state.model_mode not in available_modes:
+                    st.session_state.model_mode = available_modes[0]
+
+                st.session_state.model_mode = st.selectbox(
+                    "当前对话使用",
+                    options=available_modes,
+                    index=available_modes.index(st.session_state.model_mode),
+                    format_func=lambda value: {
+                        "PLATFORM": "平台模型",
+                        "BYOK": "我的 DeepSeek Key",
+                    }[value],
+                )
+            else:
+                st.error("当前账号没有可用的模型模式。")
+
+            credential_status = model_access.get("byok_status")
+
+            if credential_status == "active":
+                try:
+                    credential = client.get_deepseek_credential()
+                    st.success(f"已配置：{credential['masked_key']}")
+                except (KeyError, LifePilotApiError) as error:
+                    st.warning(str(error))
+            elif credential_status == "invalid":
+                st.error("当前 Key 已失效，请重新提交。")
+            elif credential_status == "revoked":
+                st.info("原 Key 已撤销，可以提交新 Key。")
+            elif model_access.get("byok_enabled"):
+                st.caption("当前账号尚未配置 DeepSeek Key。")
+
+            if model_access.get("byok_enabled"):
+                with st.form("deepseek-key-form", clear_on_submit=True):
+                    submitted_key = st.text_input(
+                        "DeepSeek API Key",
+                        type="password",
+                        max_chars=1024,
+                        autocomplete="off",
+                    )
+                    save_key = st.form_submit_button(
+                        (
+                            "验证并替换 Key"
+                            if credential_status is not None
+                            else "验证并保存 Key"
+                        ),
+                        use_container_width=True,
+                    )
+
+                if save_key:
+                    try:
+                        client.save_deepseek_credential(submitted_key)
+                        st.success("DeepSeek Key 已验证并保存。")
+                        st.rerun()
+                    except LifePilotApiError as error:
+                        st.error(str(error))
+
+                if credential_status in {"active", "invalid"}:
+                    confirm_revoke = st.checkbox(
+                        "我确认停止使用当前 Key",
+                        key="confirm-deepseek-key-revoke",
+                    )
+
+                    if st.button(
+                        "撤销 Key",
+                        disabled=not confirm_revoke,
+                        use_container_width=True,
+                    ):
+                        try:
+                            client.revoke_deepseek_credential()
+                            st.session_state.model_mode = "PLATFORM"
+                            st.success("DeepSeek Key 已撤销。")
+                            st.rerun()
+                        except LifePilotApiError as error:
+                            st.error(str(error))
+
+                if credential_status is not None:
+                    confirm_delete_credential = st.checkbox(
+                        "我确认删除全部凭据元数据",
+                        key="confirm-deepseek-key-delete",
+                    )
+
+                    if st.button(
+                        "删除凭据记录",
+                        disabled=not confirm_delete_credential,
+                        use_container_width=True,
+                    ):
+                        try:
+                            client.delete_deepseek_credential()
+                            st.session_state.model_mode = "PLATFORM"
+                            st.success("凭据记录已删除。")
+                            st.rerun()
+                        except LifePilotApiError as error:
+                            st.error(str(error))
 
     if current_user.get("role") == "admin":
         with st.expander("注册邀请"):
@@ -637,6 +764,7 @@ if prompt:
         for token in client.stream_chat(
             message=prompt,
             thread_id=(st.session_state.thread_id),
+            model_mode=st.session_state.model_mode,
         ):
             received_chunks.append(token)
             yield token

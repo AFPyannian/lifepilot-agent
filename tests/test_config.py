@@ -1,5 +1,8 @@
 """验证应用配置解析和约束。"""
 
+import base64
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -115,3 +118,24 @@ def test_unknown_legacy_api_key_settings_are_ignored() -> None:
 
     assert not hasattr(settings, "lifepilot_api_key")
     assert "secret-lifepilot-key" not in repr(settings)
+
+
+def test_byok_requires_a_valid_versioned_master_key() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            deepseek_api_key="test-deepseek-key",
+            byok_enabled=True,
+        )
+
+
+def test_byok_master_keyring_is_decoded() -> None:
+    encoded_key = base64.urlsafe_b64encode(b"a" * 32).decode()
+    settings = Settings(
+        _env_file=None,
+        deepseek_api_key="test-deepseek-key",
+        byok_enabled=True,
+        provider_credential_master_keys=json.dumps({"v1": encoded_key}),
+    )
+
+    assert settings.provider_credential_keyring() == {"v1": b"a" * 32}

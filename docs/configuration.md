@@ -34,12 +34,54 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 
 | 环境变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `DEEPSEEK_API_KEY` | 是 | 无 | DeepSeek API 密钥，使用 SecretStr 保存 |
+| `DEEPSEEK_API_KEY` | 条件必填 | 无 | 启用平台模型时使用的服务端 DeepSeek Key |
 | `DEEPSEEK_MODEL` | 否 | `deepseek-v4-flash` | 聊天模型名称 |
 | `DEEPSEEK_TIMEOUT_SECONDS` | 否 | `60` | 单次模型请求超时秒数，必须大于 0 |
 | `DEEPSEEK_MAX_RETRIES` | 否 | `2` | 模型客户端最大重试次数，范围 0～10 |
+| `CREDENTIAL_VALIDATION_TIMEOUT_SECONDS` | 否 | `15` | 用户 Key 受控验证请求的超时秒数 |
+| `BYOK_ENABLED` | 否 | `false` | 是否允许登录用户保存自己的 DeepSeek Key |
+| `PLATFORM_MODEL_ENABLED` | 否 | `true` | 是否允许使用服务端统一配置的 Key |
+| `DEFAULT_MODEL_MODE` | 否 | `PLATFORM` | 新聊天请求的默认模型模式 |
+| `PROVIDER_CREDENTIAL_MASTER_KEYS` | BYOK 启用时 | 空 | JSON 格式的服务端主密钥环 |
+| `PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION` | BYOK 启用时 | `v1` | 新凭据使用的主密钥版本 |
 
 模型重试只覆盖模型客户端请求，不会自动重放完整 Agent 工作流，以避免重复执行写入类工具。
+
+### 用户自带 DeepSeek Key
+
+生成一份32字节主密钥：
+
+```powershell
+python -c "import base64,secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+启用 BYOK：
+
+```env
+BYOK_ENABLED=true
+PROVIDER_CREDENTIAL_MASTER_KEYS={"v1":"替换为生成结果"}
+PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION=v1
+```
+
+登录用户在 Streamlit 的“模型设置”中提交 Key。后端先发起不进入 LangSmith
+回调链的最小验证请求，验证成功后才使用 AES-256-GCM 写入数据库。界面和 API
+只返回末四位掩码，不提供原始 Key 读取或导出接口。生产环境必须使用 HTTPS，
+并将主密钥放在数据库之外的环境变量、Vault 或 KMS 中。
+
+轮换主密钥时，先同时配置旧版本和新版本，并将活动版本切到新版本：
+
+```env
+PROVIDER_CREDENTIAL_MASTER_KEYS={"v1":"旧密钥","v2":"新密钥"}
+PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION=v2
+```
+
+停止写入服务后执行：
+
+```powershell
+python -m scripts.rewrap_provider_credentials --from-version v1
+```
+
+确认数据库中不存在 `v1` 记录后才能移除旧主密钥。数据库备份和主密钥必须分开保管。
 
 ## 4. API 认证与限流
 

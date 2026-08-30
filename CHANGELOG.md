@@ -16,17 +16,25 @@ The project follows [Semantic Versioning](https://semver.org/).
 - End-to-end user isolation for conversations, checkpoints, tools, memories, knowledge files and Chroma metadata.
 - Offline backup and migration command for existing `local-user` data.
 - Streamlit login, logout and password-change session support.
+- Per-user DeepSeek BYOK credential management with masked metadata, rotation,
+  revocation and deletion.
+- A model gateway that selects platform or user credentials for each authenticated
+  request without caching user secrets.
 
 ### Changed
 
 - Replaced the shared API Key with authenticated user Sessions on all business routes.
 - Namespaced LangGraph checkpoint thread IDs by authenticated user UUID.
+- Persisted only the selected model mode in LangGraph state so approval resumes use
+  the original credential source.
 
 ### Security
 
 - User identity is injected only from the server-side authentication result and is hidden from model tool schemas.
 - Password changes, account disabling and logout-all revoke active Sessions.
 - Session tokens are returned only to the client; the database stores SHA-256 digests.
+- User API keys are validated before storage and protected with AES-256-GCM; raw keys
+  are never returned by the API, written to logs or stored in checkpoints.
 
 ## [1.0.0] - 2026-08-27
 

@@ -24,7 +24,8 @@ from app.api.schemas import (
 )
 from app.api.security import CurrentUser
 from app.api.streaming import stream_chat_events
-from app.exceptions import LifePilotError
+from app.credentials.errors import CredentialError
+from app.exceptions import LifePilotError, ModelServiceError
 from app.identity import AgentContext
 
 logger = logging.getLogger("lifepilot.api")
@@ -79,7 +80,10 @@ def chat(
             )
 
             result = graph.invoke(
-                {"messages": [HumanMessage(content=(payload.message))]},
+                {
+                    "messages": [HumanMessage(content=payload.message)],
+                    "model_mode": payload.model_mode,
+                },
                 config=config,
                 context=AgentContext(user_id=current_user.user_id),
             )
@@ -126,14 +130,23 @@ def chat(
     except HTTPException:
         raise
 
-    except LifePilotError as error:
-        logger.exception(
-            "Expected Agent API error thread_id=%s",
+    except (CredentialError, ModelServiceError) as error:
+        logger.warning(
+            "Sensitive Agent API error thread_id=%s error_type=%s",
             payload.thread_id,
+            type(error).__name__,
         )
 
         raise HTTPException(
             status_code=(status.HTTP_503_SERVICE_UNAVAILABLE),
+            detail=error.user_message,
+        ) from None
+
+    except LifePilotError as error:
+        logger.exception("Expected Agent API error thread_id=%s", payload.thread_id)
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=error.user_message,
         ) from error
 
@@ -187,6 +200,7 @@ def chat_stream(
         graph_lock=graph_lock,
         message=payload.message,
         thread_id=payload.thread_id,
+        model_mode=payload.model_mode,
         config=config,
         context=AgentContext(user_id=current_user.user_id),
     )

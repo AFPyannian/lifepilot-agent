@@ -209,6 +209,42 @@ class LifePilotApiClient:
             },
         )
 
+    def get_model_access(self) -> dict[str, Any]:
+        """读取当前账号可以使用的模型模式。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/model/access",
+        )
+
+    def get_deepseek_credential(self) -> dict[str, Any]:
+        """读取当前账号的掩码 DeepSeek 凭据元数据。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/model/credentials/deepseek",
+        )
+
+    def save_deepseek_credential(self, api_key: str) -> dict[str, Any]:
+        """验证并创建或轮换当前账号的 DeepSeek Key。"""
+        return self._request_json(
+            method="PUT",
+            path="/api/v1/model/credentials/deepseek",
+            json={"api_key": api_key},
+        )
+
+    def revoke_deepseek_credential(self) -> None:
+        """撤销当前账号的 DeepSeek Key。"""
+        self._request(
+            method="POST",
+            path="/api/v1/model/credentials/deepseek/revoke",
+        )
+
+    def delete_deepseek_credential(self) -> None:
+        """物理删除当前账号的 DeepSeek 凭据记录。"""
+        self._request(
+            method="DELETE",
+            path="/api/v1/model/credentials/deepseek",
+        )
+
     def is_healthy(self) -> bool:
         """检查后端健康接口是否可用。"""
 
@@ -369,6 +405,7 @@ class LifePilotApiClient:
         self,
         message: str,
         thread_id: str,
+        model_mode: str = "PLATFORM",
     ) -> Iterator[str]:
         """发送聊天请求并逐段产生模型文本。"""
 
@@ -381,6 +418,7 @@ class LifePilotApiClient:
                     json={
                         "message": message,
                         "thread_id": thread_id,
+                        "model_mode": model_mode,
                     },
                 ) as response,
             ):

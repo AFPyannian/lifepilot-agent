@@ -128,3 +128,21 @@ def test_different_threads_are_isolated(tmp_path):
 
     assert len(result["messages"]) == 2
     assert result["messages"][-1].content == "已处理第 1 条用户消息"
+
+
+def test_model_mode_is_persisted_in_checkpoint(tmp_path):
+    graph = build_test_graph(tmp_path)
+    config = checkpoint_config("test-user", "byok-thread")
+
+    graph.invoke(
+        {
+            "messages": [HumanMessage(content="使用我的Key")],
+            "model_mode": "BYOK",
+        },
+        config=config,
+        context=AgentContext(user_id="test-user"),
+    )
+
+    snapshot = graph.get_state(config)
+
+    assert snapshot.values["model_mode"] == "BYOK"

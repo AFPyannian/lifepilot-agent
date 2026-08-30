@@ -19,7 +19,8 @@ from app.api.interrupts import (
     find_pending_interrupt,
     normalize_approval_request,
 )
-from app.exceptions import LifePilotError
+from app.credentials.errors import CredentialError
+from app.exceptions import LifePilotError, ModelServiceError
 from app.identity import AgentContext
 
 logger = logging.getLogger("lifepilot.api.streaming")
@@ -47,6 +48,7 @@ def stream_chat_events(
     thread_id: str,
     config: dict[str, Any],
     context: AgentContext,
+    model_mode: str = "PLATFORM",
 ) -> Iterator[str]:
     """执行 Agent 并依次产生开始、文本、审批、完成或错误事件。"""
 
@@ -77,7 +79,10 @@ def stream_chat_events(
                 )
 
                 stream = graph.stream(
-                    {"messages": [HumanMessage(content=message)]},
+                    {
+                        "messages": [HumanMessage(content=message)],
+                        "model_mode": model_mode,
+                    },
                     config=config,
                     context=context,
                     stream_mode="messages",
@@ -163,10 +168,11 @@ def stream_chat_events(
             },
         )
 
-    except LifePilotError as error:
-        logger.exception(
-            "Expected Agent stream error thread_id=%s",
+    except (CredentialError, ModelServiceError) as error:
+        logger.warning(
+            "Sensitive Agent stream error thread_id=%s error_type=%s",
             thread_id,
+            type(error).__name__,
         )
 
         yield create_sse_event(
@@ -174,6 +180,14 @@ def stream_chat_events(
             data={
                 "message": error.user_message,
             },
+        )
+
+    except LifePilotError as error:
+        logger.exception("Expected Agent stream error thread_id=%s", thread_id)
+
+        yield create_sse_event(
+            event="error",
+            data={"message": error.user_message},
         )
 
     except Exception:

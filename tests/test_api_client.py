@@ -167,6 +167,7 @@ def test_stream_chat_returns_tokens() -> None:
         request: httpx.Request,
     ) -> httpx.Response:
         assert request.url.path == "/api/v1/chat/stream"
+        assert json.loads(request.content)["model_mode"] == "BYOK"
 
         return httpx.Response(
             status_code=200,
@@ -183,6 +184,7 @@ def test_stream_chat_returns_tokens() -> None:
         client.stream_chat(
             message="你好",
             thread_id="test",
+            model_mode="BYOK",
         )
     )
 

@@ -7,11 +7,18 @@ from langchain_core.messages import HumanMessage, ToolMessage
 
 from app.checkpointing import open_sqlite_checkpointer
 from app.config import apply_runtime_environment, get_settings
+from app.credentials.crypto import CredentialCipher
+from app.credentials.service import ProviderCredentialService
 from app.exceptions import ConfigurationError, LifePilotError
 from app.graph import build_graph
 from app.identity import AgentContext, checkpoint_config
 from app.logging_config import configure_logging, shutdown_logging
+from app.model import DeepSeekCredentialValidator
+from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
+from app.repositories.provider_credential_repository import (
+    ProviderCredentialRepository,
+)
 
 logger = logging.getLogger("lifepilot.main")
 
@@ -167,6 +174,7 @@ def run_chat(
                     "messages": [
                         HumanMessage(content=user_input),
                     ],
+                    "model_mode": "PLATFORM",
                 },
                 config=config,
                 context=context,
@@ -254,9 +262,32 @@ def main() -> None:
         with open_sqlite_checkpointer(
             settings.checkpoint_database_path
         ) as checkpointer:
+            credential_repository = ProviderCredentialRepository(
+                settings.app_database_path
+            )
+            credential_keyring = settings.provider_credential_keyring()
+            credential_service = ProviderCredentialService(
+                repository=credential_repository,
+                cipher=(
+                    CredentialCipher(
+                        keyring=credential_keyring,
+                        active_key_version=(
+                            settings.provider_credential_active_key_version
+                        ),
+                    )
+                    if credential_keyring
+                    else None
+                ),
+                validator=DeepSeekCredentialValidator(settings),
+            )
+            model_gateway = DeepSeekModelGateway(
+                settings=settings,
+                credential_service=credential_service,
+            )
             graph = build_graph(
                 settings=settings,
                 checkpointer=checkpointer,
+                model_gateway=model_gateway,
             )
 
             run_chat(

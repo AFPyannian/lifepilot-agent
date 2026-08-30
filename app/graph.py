@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Sequence
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, NotRequired, Protocol
 
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -16,11 +16,12 @@ from langgraph.runtime import Runtime
 from typing_extensions import TypedDict
 
 from app.config import Settings, get_settings
+from app.credentials.models import ModelMode
 from app.exceptions import LifePilotError, ModelServiceError
 from app.identity import AgentContext
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.memory_context import build_user_memory_context
-from app.model import create_model
+from app.model_gateway import ModelGateway, StaticModelGateway
 from app.repositories.note_repository import NoteRepository
 from app.repositories.todo_repository import TodoRepository
 from app.repositories.user_memory_repository import UserMemoryRepository
@@ -108,9 +109,10 @@ class ChatModel(Protocol):
 
 
 class AssistantState(TypedDict):
-    """定义在 LangGraph 节点之间共享的消息状态。"""
+    """定义在 LangGraph 节点之间共享的消息和模型选择状态。"""
 
     messages: Annotated[list[AnyMessage], add_messages]
+    model_mode: NotRequired[ModelMode]
 
 
 def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
@@ -195,6 +197,7 @@ def sanitize_messages_for_model(messages: list[AnyMessage]) -> list[AnyMessage]:
 def build_graph(
     settings: Settings | None = None,
     model: ChatModel | None = None,
+    model_gateway: ModelGateway | None = None,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
     todo_repository: TodoRepository | None = None,
     note_repository: NoteRepository | None = None,
@@ -219,7 +222,13 @@ def build_graph(
 
         return active_settings
 
-    active_model = model if model is not None else create_model(require_settings())
+    active_model_gateway = model_gateway
+
+    if active_model_gateway is None and model is not None:
+        active_model_gateway = StaticModelGateway(model)
+
+    if active_model_gateway is None:
+        raise RuntimeError("ModelGateway 尚未初始化。")
 
     active_checkpointer = checkpointer if checkpointer is not None else InMemorySaver()
 
@@ -272,8 +281,6 @@ def build_graph(
         *knowledge_tools,
     ]
 
-    model_with_tools = active_model.bind_tools(all_tools)
-
     def assistant_node(
         state: AssistantState,
         runtime: Runtime[AgentContext],
@@ -296,7 +303,15 @@ def build_graph(
         ]
 
         try:
-            response = model_with_tools.invoke(messages_for_model)
+            response = active_model_gateway.invoke(
+                user_id=runtime.context.user_id,
+                model_mode=state.get(
+                    "model_mode",
+                    require_settings().default_model_mode,
+                ),
+                tools=all_tools,
+                messages=messages_for_model,
+            )
         except LifePilotError:
             raise
         except Exception as error:

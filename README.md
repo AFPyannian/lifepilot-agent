@@ -104,6 +104,7 @@ lifepilot-agent/
 │   ├── api/                 # FastAPI 路由、中间件、认证和流式响应
 │   ├── auth/                # 密码哈希、Session 服务和登录限流
 │   ├── clients/             # Streamlit 使用的后端 API 客户端
+│   ├── credentials/         # 用户模型凭据加密与生命周期管理
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
 │   ├── repositories/        # SQLite 数据访问层
 │   ├── tools/               # Agent 工具
@@ -164,6 +165,17 @@ Copy-Item .env.example .env
 ```env
 DEEPSEEK_API_KEY=your-deepseek-api-key
 ```
+
+如需允许登录用户使用自己的 DeepSeek Key，另行生成32字节主密钥并配置：
+
+```env
+BYOK_ENABLED=true
+PROVIDER_CREDENTIAL_MASTER_KEYS={"v1":"URL-safe-Base64主密钥"}
+PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION=v1
+```
+
+用户 Key 由后端验证并使用 AES-256-GCM 加密，前端只能查看末四位掩码。完整配置和
+主密钥轮换流程见 [配置说明](docs/configuration.md)。
 
 业务接口始终要求账号 Session。首次启动前创建管理员账号，密码会在终端中隐藏输入：
 
@@ -232,6 +244,8 @@ data/chroma/            # 知识库向量索引
 knowledge_base/<用户UUID>/ # 按用户隔离的本地知识文档
 logs/lifepilot.log      # 应用日志
 ```
+
+`lifepilot.db` 中的用户模型 Key 只有密文；解密主密钥必须在数据库之外单独备份。
 
 这些目录和文件默认不会提交到 Git。公开仓库前仍应确认 `.env`、数据库、日志、模型文件和私人知识文档没有进入 Git 历史。
 
@@ -308,6 +322,8 @@ python -m evaluations.run_agent_eval --case add_todo
 - 账号、登录、密码和主要写操作记录审计事件。
 - 注册默认关闭；启用后仅接受管理员创建的一次性邀请码。
 - 注册用户固定为普通用户，客户端不能指定角色、状态或用户 ID。
+- 用户模型 Key 先受控验证后加密保存，API 不提供原文读取或导出。
+- 模型网关按认证用户选择 BYOK 或平台 Key，单个用户凭据失效不影响其他用户。
 - 当前限流状态不跨进程共享，服务重启后会清空。
 
 ## 项目定位与限制

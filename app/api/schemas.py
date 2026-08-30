@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -22,6 +22,8 @@ class ChatRequest(BaseModel):
         pattern=r"^[A-Za-z0-9._:-]+$",
         description="LangGraph 会话 ID",
     )
+
+    model_mode: Literal["BYOK", "PLATFORM"] = "PLATFORM"
 
     @field_validator(
         "message",
@@ -293,3 +295,33 @@ class InvitationRevokeResponse(BaseModel):
 
     id: str
     revoked: bool
+
+
+class ProviderCredentialUpsertRequest(BaseModel):
+    """表示提交或轮换 DeepSeek API Key 的请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    api_key: SecretStr = Field(min_length=1, max_length=1024)
+
+
+class ProviderCredentialResponse(BaseModel):
+    """只返回不含密文和指纹的凭据元数据。"""
+
+    provider: Literal["deepseek"]
+    masked_key: str
+    status: Literal["active", "invalid", "revoked"]
+    validated_at: datetime | None
+    last_used_at: datetime | None
+    created_at: datetime
+    revoked_at: datetime | None
+
+
+class ModelAccessResponse(BaseModel):
+    """表示当前账号可以使用的模型模式。"""
+
+    byok_enabled: bool
+    byok_configured: bool
+    byok_status: Literal["active", "invalid", "revoked"] | None
+    platform_enabled: bool
+    default_mode: Literal["BYOK", "PLATFORM"]

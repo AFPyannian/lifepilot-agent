@@ -95,6 +95,9 @@ FastAPI TestClient 和 HTTPX MockTransport 用于验证：
 - 请求限流和安全响应头。
 - Request ID。
 - Streamlit API Client 请求格式。
+- AES-GCM 凭据加密、防篡改和跨用户密文调换。
+- 用户 Key 创建、轮换、撤销、删除及明文不落库。
+- BYOK/PLATFORM 模型路由和单用户认证失败隔离。
 
 这些测试通过 `create_app()` 注入 Fake Graph、临时 Repository 和知识库服务，不启动真实 Uvicorn。
 

@@ -19,10 +19,12 @@ flowchart LR
         CTX[Request Context]
         AUTH[Account / Session]
         LIMIT[Rate Limiter]
+        CREDS[Credential Service]
     end
 
     subgraph Agent[Agent 层]
         GRAPH[LangGraph]
+        GATEWAY[Model Gateway]
         MODEL[DeepSeek]
         TOOLNODE[ToolNode]
         APPROVAL[Interrupt / Resume]
@@ -41,7 +43,10 @@ flowchart LR
     UI --> CLIENT --> API
     CLI --> GRAPH
     API --> CTX --> AUTH --> LIMIT --> GRAPH
-    GRAPH <--> MODEL
+    API --> CREDS --> DB
+    GRAPH --> GATEWAY
+    GATEWAY --> CREDS
+    GATEWAY <--> MODEL
     GRAPH <--> TOOLNODE
     TOOLNODE --> APPROVAL
     TOOLNODE --> TOOLS
@@ -80,6 +85,7 @@ API 按职责拆分：
 | `routes.py` | 普通聊天、流式聊天、审批恢复 |
 | `conversation_routes.py` | 会话列表、详情、重命名和删除 |
 | `knowledge_routes.py` | 知识文档上传、列表和删除 |
+| `model_routes.py` | 用户模型访问状态及 DeepSeek Key 创建、轮换、撤销和删除 |
 | `health_routes.py` | 公开的存活与就绪检查 |
 | `streaming.py` | 将 LangGraph 输出转换成 SSE 事件 |
 | `execution.py` | 执行恢复和最终回答提取 |
@@ -103,7 +109,12 @@ assistant 节点在每次模型调用前：
 1. 读取当前认证用户的长期记忆上下文。
 2. 清理中断产生的不完整工具调用序列。
 3. 注入系统规则与长期记忆。
-4. 调用已经绑定工具的模型。
+4. 将认证用户 UUID、模型模式和消息交给 ModelGateway。
+
+ModelGateway 每次调用都重新解析凭据。`PLATFORM` 使用服务端 SecretStr，`BYOK`
+只解密当前认证用户的有效凭据；用户模型实例不会跨请求缓存。LangGraph 状态只保存
+`BYOK/PLATFORM` 模式，不保存 API Key，因此审批中断恢复可以沿用原模式，同时不会
+把 Secret 写入 Checkpoint。
 
 ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。数据库结果和工具错误都会转换成明确的工具输出，模型不能自行声称某个操作已经成功。
 
@@ -128,6 +139,7 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 | --- | --- | --- |
 | 账号、Session 和审计事件 | `data/lifepilot.db` | 用户 UUID / Session 摘要 |
 | 一次性注册邀请 | `data/lifepilot.db` | 邀请摘要 / 创建与使用用户 UUID |
+| 用户模型凭据 | `data/lifepilot.db` | 用户 UUID + provider，加密密文与掩码元数据 |
 | LangGraph 消息与执行位置 | `data/checkpoints.db` | 用户 UUID + 公开 thread ID |
 | 会话索引和消息记录 | `data/lifepilot.db` | 用户 UUID + thread ID |
 | 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | 用户 UUID |
@@ -192,6 +204,9 @@ flowchart LR
 - 账号和主要写操作保存审计事件，不记录原始密码或 Session 令牌。
 - 注册默认关闭；邀请模式下，用户创建和邀请码消费使用同一个 `BEGIN IMMEDIATE` 事务。
 - 邀请码原文只返回一次，数据库只保存摘要；新用户角色由服务端固定为 `user`。
+- 用户 DeepSeek Key 先验证后使用 AES-256-GCM 加密，主密钥不进入数据库。
+- 凭据密文通过附加认证数据绑定用户、provider 和记录 ID，不能跨用户调换。
+- 凭据接口不提供原文读取；撤销会清除密文、主密钥版本和指纹。
 - Request ID 贯穿请求日志和响应。
 - DeepSeek 调用有超时和有限重试。
 - LangGraph `recursion_limit` 防止异常工具循环无限执行。

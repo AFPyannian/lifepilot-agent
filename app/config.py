@@ -1,5 +1,7 @@
 """集中定义、校验并加载 LifePilot 运行配置。"""
 
+import base64
+import json
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -24,12 +26,23 @@ class Settings(BaseSettings):
         frozen=True,
     )
 
-    deepseek_api_key: SecretStr
+    deepseek_api_key: SecretStr | None = None
 
     deepseek_model: str = Field(default="deepseek-v4-flash", min_length=1)
 
     deepseek_timeout_seconds: float = Field(default=60.0, gt=0)
     deepseek_max_retries: int = Field(default=2, ge=0, le=10)
+    credential_validation_timeout_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        le=60,
+    )
+
+    byok_enabled: bool = False
+    platform_model_enabled: bool = True
+    default_model_mode: Literal["PLATFORM", "BYOK"] = "PLATFORM"
+    provider_credential_master_keys: SecretStr | None = None
+    provider_credential_active_key_version: str = Field(default="v1", min_length=1)
 
     api_rate_limit_enabled: bool = True
     api_rate_limit_requests: int = Field(default=60, gt=0)
@@ -150,6 +163,73 @@ class Settings(BaseSettings):
 
         return self
 
+    def provider_credential_keyring(self) -> dict[str, bytes]:
+        """解析用户模型凭据使用的服务端主密钥环。"""
+        if self.provider_credential_master_keys is None:
+            return {}
+
+        raw_value = self.provider_credential_master_keys.get_secret_value().strip()
+
+        if not raw_value:
+            return {}
+
+        try:
+            encoded_keys = json.loads(raw_value)
+        except json.JSONDecodeError as error:
+            raise ValueError("PROVIDER_CREDENTIAL_MASTER_KEYS 格式无效") from error
+
+        if not isinstance(encoded_keys, dict):
+            raise ValueError("PROVIDER_CREDENTIAL_MASTER_KEYS 必须是JSON对象")
+
+        decoded_keys: dict[str, bytes] = {}
+
+        for version, encoded_key in encoded_keys.items():
+            if not isinstance(version, str) or not version.strip():
+                raise ValueError("凭据主密钥版本无效")
+            if not isinstance(encoded_key, str):
+                raise ValueError("凭据主密钥内容无效")
+
+            try:
+                decoded_key = base64.urlsafe_b64decode(
+                    encoded_key + ("=" * (-len(encoded_key) % 4))
+                )
+            except Exception as error:
+                raise ValueError("凭据主密钥不是有效的Base64") from error
+
+            if len(decoded_key) != 32:
+                raise ValueError("凭据主密钥必须为32字节")
+
+            decoded_keys[version] = decoded_key
+
+        return decoded_keys
+
+    @model_validator(mode="after")
+    def validate_model_access(self) -> "Settings":
+        """确保启用的模型模式具有完整服务端配置。"""
+        platform_key = ""
+
+        if self.deepseek_api_key is not None:
+            platform_key = self.deepseek_api_key.get_secret_value().strip()
+
+        if self.platform_model_enabled and not platform_key:
+            raise ValueError("启用平台模型时必须配置 DEEPSEEK_API_KEY")
+
+        keyring = self.provider_credential_keyring()
+
+        if self.byok_enabled:
+            if not keyring:
+                raise ValueError("启用BYOK时必须配置凭据主密钥")
+            if self.provider_credential_active_key_version not in keyring:
+                raise ValueError("当前凭据主密钥版本不存在于密钥环")
+
+        if self.default_model_mode == "PLATFORM" and not self.platform_model_enabled:
+            raise ValueError("默认平台模型当前未启用")
+
+        if self.default_model_mode == "BYOK" and not self.byok_enabled:
+            raise ValueError("默认BYOK模式当前未启用")
+
+        return self
+
     @model_validator(mode="after")
     def validate_langsmith(self) -> "Settings":
         """确保启用 LangSmith 时同时提供有效配置。"""
@@ -172,7 +252,7 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """读取并缓存全局应用配置。"""
     try:
-        return Settings()  # type: ignore[call-arg]
+        return Settings()
     except ValidationError as error:
         raise ConfigurationError("Application settings validation failed.") from error
 

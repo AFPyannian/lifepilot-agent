@@ -18,6 +18,7 @@ from app.api.conversation_routes import router as conversation_router
 from app.api.health_routes import router as health_router
 from app.api.knowledge_routes import router as knowledge_router
 from app.api.middleware import RequestContextMiddleware
+from app.api.model_routes import router as model_router
 from app.api.rate_limit import SlidingWindowRateLimitMiddleware
 from app.api.routes import router as chat_router
 from app.api.security import require_current_user
@@ -25,13 +26,20 @@ from app.auth.rate_limit import LoginRateLimiter
 from app.auth.service import AuthService
 from app.checkpointing import open_sqlite_checkpointer
 from app.config import Settings, apply_runtime_environment, get_settings
+from app.credentials.crypto import CredentialCipher
+from app.credentials.service import ProviderCredentialService
 from app.graph import build_graph
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.logging_config import configure_logging, shutdown_logging
+from app.model import DeepSeekCredentialValidator
+from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.conversation_repository import ConversationRepository
+from app.repositories.provider_credential_repository import (
+    ProviderCredentialRepository,
+)
 
 
 def create_app(
@@ -43,6 +51,7 @@ def create_app(
     audit_repository: AuditRepository | None = None,
     login_rate_limiter: LoginRateLimiter | None = None,
     registration_rate_limiter: LoginRateLimiter | None = None,
+    provider_credential_service: ProviderCredentialService | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
 
@@ -73,6 +82,7 @@ def create_app(
                     window_seconds=900,
                 )
             )
+            application.state.provider_credential_service = provider_credential_service
 
             application.state.checkpointer = getattr(agent_graph, "checkpointer", None)
 
@@ -118,6 +128,33 @@ def create_app(
 
             active_auth_repository.delete_expired_sessions(datetime.now(UTC))
 
+            active_credential_repository = ProviderCredentialRepository(
+                active_settings.app_database_path
+            )
+            credential_keyring = active_settings.provider_credential_keyring()
+            credential_cipher = (
+                CredentialCipher(
+                    keyring=credential_keyring,
+                    active_key_version=(
+                        active_settings.provider_credential_active_key_version
+                    ),
+                )
+                if credential_keyring
+                else None
+            )
+            active_credential_service = (
+                provider_credential_service
+                or ProviderCredentialService(
+                    repository=active_credential_repository,
+                    cipher=credential_cipher,
+                    validator=DeepSeekCredentialValidator(active_settings),
+                )
+            )
+            active_model_gateway = DeepSeekModelGateway(
+                settings=active_settings,
+                credential_service=active_credential_service,
+            )
+
             if active_conversation_repository is None:
                 active_conversation_repository = ConversationRepository(
                     active_settings.app_database_path
@@ -135,6 +172,7 @@ def create_app(
                     settings=active_settings,
                     checkpointer=active_checkpointer,
                     knowledge_service=active_knowledge_service,
+                    model_gateway=active_model_gateway,
                 )
 
                 application.state.settings = active_settings
@@ -151,6 +189,10 @@ def create_app(
                 application.state.registration_rate_limiter = (
                     active_registration_rate_limiter
                 )
+                application.state.provider_credential_service = (
+                    active_credential_service
+                )
+                application.state.model_gateway = active_model_gateway
 
                 yield
 
@@ -227,6 +269,13 @@ def create_app(
         conversation_router,
         prefix="/api/v1",
         tags=["Conversations"],
+        dependencies=protected_dependencies,
+    )
+
+    application.include_router(
+        model_router,
+        prefix="/api/v1",
+        tags=["Model Access"],
         dependencies=protected_dependencies,
     )
 
