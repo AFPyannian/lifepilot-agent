@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from swagger_ui_bundle import swagger_ui_path  # type: ignore[import-untyped]
 
+from app.api.admin_routes import router as admin_router
 from app.api.auth_routes import router as auth_router
 from app.api.conversation_routes import router as conversation_router
 from app.api.health_routes import router as health_router
@@ -41,6 +42,7 @@ def create_app(
     auth_service: AuthService | None = None,
     audit_repository: AuditRepository | None = None,
     login_rate_limiter: LoginRateLimiter | None = None,
+    registration_rate_limiter: LoginRateLimiter | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
 
@@ -61,6 +63,13 @@ def create_app(
                 login_rate_limiter
                 or LoginRateLimiter(
                     max_failures=5,
+                    window_seconds=900,
+                )
+            )
+            application.state.registration_rate_limiter = (
+                registration_rate_limiter
+                or LoginRateLimiter(
+                    max_failures=10,
                     window_seconds=900,
                 )
             )
@@ -87,6 +96,7 @@ def create_app(
                 touch_interval_seconds=(
                     active_settings.auth_session_touch_interval_seconds
                 ),
+                registration_mode=active_settings.registration_mode,
             )
 
             active_audit_repository = audit_repository or AuditRepository(
@@ -96,6 +106,14 @@ def create_app(
             active_login_rate_limiter = login_rate_limiter or LoginRateLimiter(
                 max_failures=active_settings.auth_login_max_failures,
                 window_seconds=active_settings.auth_login_window_seconds,
+            )
+
+            active_registration_rate_limiter = (
+                registration_rate_limiter
+                or LoginRateLimiter(
+                    max_failures=(active_settings.auth_registration_max_failures),
+                    window_seconds=(active_settings.auth_registration_window_seconds),
+                )
             )
 
             active_auth_repository.delete_expired_sessions(datetime.now(UTC))
@@ -130,6 +148,9 @@ def create_app(
                 application.state.auth_service = active_auth_service
                 application.state.audit_repository = active_audit_repository
                 application.state.login_rate_limiter = active_login_rate_limiter
+                application.state.registration_rate_limiter = (
+                    active_registration_rate_limiter
+                )
 
                 yield
 
@@ -178,6 +199,12 @@ def create_app(
         auth_router,
         prefix="/api/v1",
         tags=["Authentication"],
+    )
+
+    application.include_router(
+        admin_router,
+        prefix="/api/v1",
+        tags=["Administration"],
     )
 
     protected_dependencies = [Depends(require_current_user)]

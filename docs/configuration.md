@@ -49,6 +49,10 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 | `AUTH_SESSION_TOUCH_INTERVAL_SECONDS` | 否 | `300` | Session 最近使用时间的最小更新间隔 |
 | `AUTH_LOGIN_MAX_FAILURES` | 否 | `5` | 登录窗口内允许的失败次数 |
 | `AUTH_LOGIN_WINDOW_SECONDS` | 否 | `900` | 登录失败计数窗口秒数 |
+| `REGISTRATION_MODE` | 否 | `closed` | `closed` 关闭注册；`invite` 启用一次性邀请码注册 |
+| `AUTH_REGISTRATION_MAX_FAILURES` | 否 | `10` | 注册窗口内允许的失败次数 |
+| `AUTH_REGISTRATION_WINDOW_SECONDS` | 否 | `900` | 注册失败计数窗口秒数 |
+| `AUTH_INVITATION_MAX_TTL_HOURS` | 否 | `720` | 管理员可设置的邀请码最长有效期 |
 | `API_RATE_LIMIT_ENABLED` | 否 | `true` | 是否启用进程内限流 |
 | `API_RATE_LIMIT_REQUESTS` | 否 | `60` | 一个时间窗口内允许的请求数 |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | 否 | `60` | 限流窗口秒数 |
@@ -59,7 +63,15 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 python -m scripts.user_admin create --username admin --role admin
 ```
 
-项目不提供公共注册。管理员可以在本机创建普通用户、禁用或启用账号，以及重置密码：
+首次管理员必须通过 CLI 创建。项目默认不开放注册；如需允许用户自行设置密码，可配置：
+
+```env
+REGISTRATION_MODE=invite
+```
+
+重启后端后，管理员可在 Streamlit 中生成一次性邀请码。邀请码原文只展示一次，数据库只保存 SHA-256 摘要；注册创建的账号固定为 `user / active`。
+
+管理员仍可在本机直接创建用户、禁用或启用账号，以及重置密码：
 
 ```powershell
 python -m scripts.user_admin create --username alice --role user
@@ -185,6 +197,10 @@ AUTH_SESSION_TTL_HOURS=168
 AUTH_SESSION_TOUCH_INTERVAL_SECONDS=300
 AUTH_LOGIN_MAX_FAILURES=5
 AUTH_LOGIN_WINDOW_SECONDS=900
+REGISTRATION_MODE=closed
+AUTH_REGISTRATION_MAX_FAILURES=10
+AUTH_REGISTRATION_WINDOW_SECONDS=900
+AUTH_INVITATION_MAX_TTL_HOURS=720
 API_RATE_LIMIT_ENABLED=true
 API_RATE_LIMIT_REQUESTS=60
 API_RATE_LIMIT_WINDOW_SECONDS=60

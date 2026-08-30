@@ -8,6 +8,9 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Optional invitation-only registration with a closed-by-default policy.
+- Admin-only APIs and Streamlit controls for creating, listing and revoking one-time invitations.
+- Atomic invitation redemption and user creation with registration throttling and audit events.
 - Local account management with Argon2id password hashing and admin CLI commands.
 - Revocable opaque Bearer Sessions, login throttling and security audit events.
 - End-to-end user isolation for conversations, checkpoints, tools, memories, knowledge files and Chroma metadata.

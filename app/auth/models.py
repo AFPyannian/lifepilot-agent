@@ -6,6 +6,7 @@ from typing import Literal
 
 UserRole = Literal["admin", "user"]
 UserStatus = Literal["active", "disabled"]
+RegistrationMode = Literal["closed", "invite"]
 
 
 @dataclass(frozen=True)
@@ -40,3 +41,26 @@ class SessionGrant:
     access_token: str
     expires_at: datetime
     principal: Principal
+
+
+@dataclass(frozen=True)
+class InvitationRecord:
+    """表示管理员创建的一次性注册邀请。"""
+
+    id: str
+    created_by: str
+    created_by_username: str
+    expires_at: datetime
+    used_by: str | None
+    used_by_username: str | None
+    used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class InvitationGrant:
+    """表示只向管理员展示一次的邀请码原文。"""
+
+    invite_code: str
+    invitation: InvitationRecord

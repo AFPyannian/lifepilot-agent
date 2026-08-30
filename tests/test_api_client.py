@@ -103,6 +103,50 @@ def test_client_sends_session_token() -> None:
     assert client.is_healthy() is True
 
 
+def test_registration_and_invitation_client_methods() -> None:
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/v1/auth/registration":
+            return httpx.Response(200, json={"mode": "invite", "enabled": True})
+        if request.url.path == "/api/v1/auth/register":
+            return httpx.Response(
+                201,
+                json={"access_token": "new-token", "user": {"role": "user"}},
+            )
+        if request.method == "POST":
+            return httpx.Response(
+                201,
+                json={"id": "invite-1", "invite_code": "secret-code"},
+            )
+        if request.method == "GET":
+            return httpx.Response(200, json={"invitations": [{"id": "invite-1"}]})
+        return httpx.Response(200, json={"id": "invite-1", "revoked": True})
+
+    client = LifePilotApiClient(
+        base_url="http://testserver",
+        access_token="admin-token",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.get_registration_status()["enabled"] is True
+    assert (
+        client.register("alice", "long-test-password", "invite-code")["access_token"]
+        == "new-token"
+    )
+    assert client.create_invitation(72)["invite_code"] == "secret-code"
+    assert client.list_invitations() == [{"id": "invite-1"}]
+    assert client.revoke_invitation("invite-1") is True
+    assert requests == [
+        ("GET", "/api/v1/auth/registration"),
+        ("POST", "/api/v1/auth/register"),
+        ("POST", "/api/v1/admin/invitations"),
+        ("GET", "/api/v1/admin/invitations"),
+        ("DELETE", "/api/v1/admin/invitations/invite-1"),
+    ]
+
+
 def test_stream_chat_returns_tokens() -> None:
     sse_body = (
         "event: start\n"

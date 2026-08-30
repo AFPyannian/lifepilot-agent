@@ -5,7 +5,15 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from app.auth.models import Principal, SessionGrant
+from app.auth.errors import RegistrationClosedError, RegistrationDeniedError
+from app.auth.models import (
+    InvitationGrant,
+    InvitationRecord,
+    Principal,
+    RegistrationMode,
+    SessionGrant,
+    UserRecord,
+)
 from app.auth.passwords import (
     DUMMY_PASSWORD_HASH,
     hash_password,
@@ -27,15 +35,27 @@ class AuthService:
         repository: AuthRepository,
         session_ttl_hours: int = 168,
         touch_interval_seconds: int = 300,
+        registration_mode: RegistrationMode = "closed",
     ) -> None:
         self._repository = repository
         self._session_ttl = timedelta(hours=session_ttl_hours)
         self._touch_interval = timedelta(seconds=touch_interval_seconds)
+        self._registration_mode = registration_mode
+
+    @property
+    def registration_mode(self) -> RegistrationMode:
+        """返回当前实例的注册策略。"""
+        return self._registration_mode
 
     @staticmethod
     def hash_session_token(token: str) -> str:
         """生成用于数据库查询的 Session Token 摘要。"""
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def hash_invitation_code(invite_code: str) -> str:
+        """生成邀请码数据库摘要。"""
+        return hashlib.sha256(invite_code.encode("utf-8")).hexdigest()
 
     def login(
         self,
@@ -55,6 +75,69 @@ class AuthService:
                 user.id,
                 hash_password(password),
             )
+
+        return self._issue_session(user)
+
+    def register(
+        self,
+        *,
+        username: str,
+        password: str,
+        invite_code: str,
+    ) -> SessionGrant:
+        """使用一次性邀请码创建普通用户并签发 Session。"""
+        if self._registration_mode != "invite":
+            raise RegistrationClosedError("当前实例没有开放注册。")
+
+        normalized_invite = invite_code.strip()
+        if not normalized_invite:
+            raise RegistrationDeniedError("邀请码无效或已经失效。")
+
+        user = self._repository.register_with_invitation(
+            user_id=str(uuid4()),
+            username=username,
+            password_hash=hash_password(password),
+            invitation_code_hash=self.hash_invitation_code(normalized_invite),
+            now=datetime.now(UTC),
+        )
+        return self._issue_session(user)
+
+    def create_invitation(
+        self,
+        *,
+        created_by: str,
+        expires_in_hours: int,
+        maximum_ttl_hours: int,
+    ) -> InvitationGrant:
+        """创建只可使用一次的注册邀请。"""
+        if not 1 <= expires_in_hours <= maximum_ttl_hours:
+            raise ValueError("邀请码有效期超出允许范围。")
+
+        now = datetime.now(UTC)
+        invite_code = f"lp_invite_{secrets.token_urlsafe(32)}"
+        invitation = self._repository.create_invitation(
+            invitation_id=str(uuid4()),
+            code_hash=self.hash_invitation_code(invite_code),
+            created_by=created_by,
+            expires_at=now + timedelta(hours=expires_in_hours),
+        )
+        return InvitationGrant(
+            invite_code=invite_code,
+            invitation=invitation,
+        )
+
+    def list_invitations(self) -> list[InvitationRecord]:
+        """返回邀请码状态列表。"""
+        return self._repository.list_invitations()
+
+    def revoke_invitation(self, invitation_id: str) -> bool:
+        """撤销尚未使用的邀请码。"""
+        return self._repository.revoke_invitation(invitation_id)
+
+    def _issue_session(self, user: UserRecord) -> SessionGrant:
+        """为启用用户签发不透明 Session。"""
+        if user.status != "active":
+            raise InvalidCredentialsError("账号不可用。")
 
         now = datetime.now(UTC)
         expires_at = now + self._session_ttl

@@ -5,7 +5,8 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.auth.models import Principal, UserRecord
+from app.auth.errors import RegistrationDeniedError, UsernameUnavailableError
+from app.auth.models import InvitationRecord, Principal, UserRecord
 
 
 class AuthRepository:
@@ -248,6 +249,179 @@ class AuthRepository:
             )
             return cursor.rowcount
 
+    def create_invitation(
+        self,
+        *,
+        invitation_id: str,
+        code_hash: str,
+        created_by: str,
+        expires_at: datetime,
+    ) -> InvitationRecord:
+        """保存一次性邀请码摘要。"""
+        created_at = datetime.now(UTC)
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO registration_invites (
+                    id, code_hash, created_by, expires_at,
+                    used_by, used_at, revoked_at, created_at
+                )
+                VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)
+                """,
+                (
+                    invitation_id,
+                    code_hash,
+                    created_by,
+                    expires_at.isoformat(),
+                    created_at.isoformat(),
+                ),
+            )
+
+        invitation = self.get_invitation(invitation_id)
+        if invitation is None:
+            raise RuntimeError("创建邀请码后无法读取记录。")
+        return invitation
+
+    def get_invitation(
+        self,
+        invitation_id: str,
+    ) -> InvitationRecord | None:
+        """按 ID 查询邀请码，不返回邀请码摘要。"""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT invites.id, invites.created_by,
+                       creators.username AS created_by_username,
+                       invites.expires_at, invites.used_by,
+                       users.username AS used_by_username,
+                       invites.used_at, invites.revoked_at,
+                       invites.created_at
+                FROM registration_invites AS invites
+                JOIN users AS creators ON creators.id = invites.created_by
+                LEFT JOIN users ON users.id = invites.used_by
+                WHERE invites.id = ?
+                """,
+                (invitation_id,),
+            ).fetchone()
+        return None if row is None else self._row_to_invitation(row)
+
+    def list_invitations(self) -> list[InvitationRecord]:
+        """返回管理员可见的邀请码状态列表。"""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT invites.id, invites.created_by,
+                       creators.username AS created_by_username,
+                       invites.expires_at, invites.used_by,
+                       users.username AS used_by_username,
+                       invites.used_at, invites.revoked_at,
+                       invites.created_at
+                FROM registration_invites AS invites
+                JOIN users AS creators ON creators.id = invites.created_by
+                LEFT JOIN users ON users.id = invites.used_by
+                ORDER BY invites.created_at DESC
+                """
+            ).fetchall()
+        return [self._row_to_invitation(row) for row in rows]
+
+    def revoke_invitation(self, invitation_id: str) -> bool:
+        """撤销尚未使用的邀请码。"""
+        revoked_at = datetime.now(UTC).isoformat()
+        with closing(self._connect()) as connection, connection:
+            cursor = connection.execute(
+                """
+                UPDATE registration_invites
+                SET revoked_at = ?
+                WHERE id = ? AND used_at IS NULL AND revoked_at IS NULL
+                """,
+                (revoked_at, invitation_id),
+            )
+            return cursor.rowcount > 0
+
+    def register_with_invitation(
+        self,
+        *,
+        user_id: str,
+        username: str,
+        password_hash: str,
+        invitation_code_hash: str,
+        now: datetime,
+    ) -> UserRecord:
+        """在同一事务中创建普通用户并消费一次性邀请码。"""
+        clean_username = username.strip()
+        normalized_username = clean_username.casefold()
+        if not clean_username or len(clean_username) > 64:
+            raise UsernameUnavailableError("用户名不可用。")
+
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            invitation = connection.execute(
+                """
+                SELECT id
+                FROM registration_invites
+                WHERE code_hash = ?
+                  AND used_at IS NULL
+                  AND revoked_at IS NULL
+                  AND expires_at > ?
+                """,
+                (invitation_code_hash, now.isoformat()),
+            ).fetchone()
+            if invitation is None:
+                raise RegistrationDeniedError("邀请码无效或已经失效。")
+
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO users (
+                        id, username, username_normalized, password_hash,
+                        role, status, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, 'user', 'active', ?, ?)
+                    """,
+                    (
+                        user_id,
+                        clean_username,
+                        normalized_username,
+                        password_hash,
+                        now.isoformat(),
+                        now.isoformat(),
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise UsernameUnavailableError("用户名不可用。") from error
+
+            cursor = connection.execute(
+                """
+                UPDATE registration_invites
+                SET used_by = ?, used_at = ?
+                WHERE id = ?
+                  AND used_at IS NULL
+                  AND revoked_at IS NULL
+                  AND expires_at > ?
+                """,
+                (
+                    user_id,
+                    now.isoformat(),
+                    invitation["id"],
+                    now.isoformat(),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RegistrationDeniedError("邀请码无效或已经失效。")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+        user = self.get_user_by_id(user_id)
+        if user is None:
+            raise RuntimeError("注册成功后无法读取用户记录。")
+        return user
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._database_path, timeout=10)
         connection.row_factory = sqlite3.Row
@@ -285,6 +459,32 @@ class AuthRepository:
 
                 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at
                 ON auth_sessions (expires_at);
+
+                CREATE TABLE IF NOT EXISTS registration_invites (
+                    id TEXT PRIMARY KEY,
+                    code_hash TEXT NOT NULL UNIQUE,
+                    created_by TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used_by TEXT,
+                    used_at TEXT,
+                    revoked_at TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (created_by) REFERENCES users (id)
+                        ON DELETE RESTRICT,
+                    FOREIGN KEY (used_by) REFERENCES users (id)
+                        ON DELETE SET NULL,
+                    CHECK (
+                        (used_by IS NULL AND used_at IS NULL)
+                        OR
+                        (used_by IS NOT NULL AND used_at IS NOT NULL)
+                    )
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_registration_invites_created
+                ON registration_invites (created_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_registration_invites_expires
+                ON registration_invites (expires_at);
                 """
             )
 
@@ -299,4 +499,27 @@ class AuthRepository:
             status=row["status"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+    @staticmethod
+    def _row_to_invitation(row: sqlite3.Row) -> InvitationRecord:
+        """将 SQLite 行转换为邀请码记录。"""
+        return InvitationRecord(
+            id=row["id"],
+            created_by=row["created_by"],
+            created_by_username=row["created_by_username"],
+            expires_at=datetime.fromisoformat(row["expires_at"]),
+            used_by=row["used_by"],
+            used_by_username=row["used_by_username"],
+            used_at=(
+                None
+                if row["used_at"] is None
+                else datetime.fromisoformat(row["used_at"])
+            ),
+            revoked_at=(
+                None
+                if row["revoked_at"] is None
+                else datetime.fromisoformat(row["revoked_at"])
+            ),
+            created_at=datetime.fromisoformat(row["created_at"]),
         )

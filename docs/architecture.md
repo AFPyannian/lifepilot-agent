@@ -76,6 +76,7 @@ API 按职责拆分：
 | 模块 | 职责 |
 | --- | --- |
 | `auth_routes.py` | 登录、当前用户、退出和修改密码 |
+| `admin_routes.py` | 管理员创建、查询和撤销注册邀请 |
 | `routes.py` | 普通聊天、流式聊天、审批恢复 |
 | `conversation_routes.py` | 会话列表、详情、重命名和删除 |
 | `knowledge_routes.py` | 知识文档上传、列表和删除 |
@@ -126,6 +127,7 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 | 状态 | 存储 | 作用域 |
 | --- | --- | --- |
 | 账号、Session 和审计事件 | `data/lifepilot.db` | 用户 UUID / Session 摘要 |
+| 一次性注册邀请 | `data/lifepilot.db` | 邀请摘要 / 创建与使用用户 UUID |
 | LangGraph 消息与执行位置 | `data/checkpoints.db` | 用户 UUID + 公开 thread ID |
 | 会话索引和消息记录 | `data/lifepilot.db` | 用户 UUID + thread ID |
 | 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | 用户 UUID |
@@ -188,6 +190,8 @@ flowchart LR
 - 认证后的用户 UUID 由服务端注入所有业务数据访问路径。
 - 登录失败按 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
 - 账号和主要写操作保存审计事件，不记录原始密码或 Session 令牌。
+- 注册默认关闭；邀请模式下，用户创建和邀请码消费使用同一个 `BEGIN IMMEDIATE` 事务。
+- 邀请码原文只返回一次，数据库只保存摘要；新用户角色由服务端固定为 `user`。
 - Request ID 贯穿请求日志和响应。
 - DeepSeek 调用有超时和有限重试。
 - LangGraph `recursion_limit` 防止异常工具循环无限执行。

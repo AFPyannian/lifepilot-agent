@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ChatRequest(BaseModel):
@@ -227,3 +227,69 @@ class ChangePasswordRequest(BaseModel):
 
     current_password: str = Field(min_length=1, max_length=1024)
     new_password: str = Field(min_length=12, max_length=1024)
+
+
+class RegistrationStatusResponse(BaseModel):
+    """表示当前实例是否开放注册。"""
+
+    mode: Literal["closed", "invite"]
+    enabled: bool
+
+
+class RegisterRequest(BaseModel):
+    """表示邀请码注册请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=12, max_length=1024)
+    invite_code: str = Field(min_length=16, max_length=256)
+
+    @field_validator("username", "invite_code", mode="before")
+    @classmethod
+    def clean_text_fields(cls, value: Any) -> Any:
+        """清理用户名和邀请码两端空白。"""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class CreateInvitationRequest(BaseModel):
+    """表示管理员创建邀请码的请求。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expires_in_hours: int = Field(default=72, ge=1, le=720)
+
+
+class InvitationCreateResponse(BaseModel):
+    """返回仅展示一次的邀请码原文。"""
+
+    id: str
+    invite_code: str
+    expires_at: datetime
+
+
+class InvitationItemResponse(BaseModel):
+    """表示邀请码的公开管理状态。"""
+
+    id: str
+    created_by_username: str
+    expires_at: datetime
+    used_by_username: str | None
+    used_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+
+
+class InvitationListResponse(BaseModel):
+    """表示邀请码列表。"""
+
+    invitations: list[InvitationItemResponse]
+
+
+class InvitationRevokeResponse(BaseModel):
+    """表示邀请码撤销结果。"""
+
+    id: str
+    revoked: bool

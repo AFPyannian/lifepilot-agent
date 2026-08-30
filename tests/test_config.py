@@ -72,6 +72,9 @@ def test_auth_session_defaults_are_safe() -> None:
     assert settings.auth_session_ttl_hours == 168
     assert settings.auth_session_touch_interval_seconds == 300
     assert settings.auth_login_max_failures == 5
+    assert settings.registration_mode == "closed"
+    assert settings.auth_registration_max_failures == 10
+    assert settings.auth_invitation_max_ttl_hours == 720
     assert settings.local_cli_owner_id == "local-user"
 
 
@@ -90,6 +93,15 @@ def test_login_failure_limit_is_bounded() -> None:
             _env_file=None,
             deepseek_api_key="test-deepseek-key",
             auth_login_max_failures=0,
+        )
+
+
+def test_registration_mode_is_bounded() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            deepseek_api_key="test-deepseek-key",
+            registration_mode="open",
         )
 
 

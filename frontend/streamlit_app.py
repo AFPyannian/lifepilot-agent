@@ -81,45 +81,121 @@ def check_backend_health(
     return client.is_healthy()
 
 
+@st.cache_data(
+    ttl=30,
+    show_spinner=False,
+)
+def get_registration_status(base_url: str) -> dict:
+    """短时间缓存后端注册状态。"""
+    client = LifePilotApiClient(base_url=base_url)
+    try:
+        return client.get_registration_status()
+    except LifePilotApiError:
+        return {"mode": "closed", "enabled": False}
+
+
 initialize_session_state()
 
 backend_available = check_backend_health(API_BASE_URL)
 
 if not st.session_state.access_token:
     st.title("🧭 LifePilot")
-    st.caption("请登录后使用你的个人助理")
+    st.caption("请登录或使用管理员提供的邀请码注册")
 
-    with st.form("login-form", clear_on_submit=False):
-        username = st.text_input(
-            "用户名",
-            max_chars=64,
-            autocomplete="username",
-        )
-        password = st.text_input(
-            "密码",
-            type="password",
-            max_chars=1024,
-            autocomplete="current-password",
-        )
-        login_clicked = st.form_submit_button(
-            "登录",
-            type="primary",
-            use_container_width=True,
-            disabled=not backend_available,
-        )
+    anonymous_client = LifePilotApiClient(base_url=API_BASE_URL)
+    registration_status = get_registration_status(API_BASE_URL)
+    registration_enabled = bool(registration_status.get("enabled"))
+
+    if registration_enabled:
+        login_tab, register_tab = st.tabs(["登录", "注册"])
+    else:
+        login_tab = st.container()
+        register_tab = None
+
+    with login_tab:
+        with st.form("login-form", clear_on_submit=False):
+            username = st.text_input(
+                "用户名",
+                max_chars=64,
+                autocomplete="username",
+            )
+            password = st.text_input(
+                "密码",
+                type="password",
+                max_chars=1024,
+                autocomplete="current-password",
+            )
+            login_clicked = st.form_submit_button(
+                "登录",
+                type="primary",
+                use_container_width=True,
+                disabled=not backend_available,
+            )
+
+        if login_clicked:
+            try:
+                login_result = anonymous_client.login(username, password)
+                st.session_state.access_token = login_result["access_token"]
+                st.session_state.current_user = login_result["user"]
+                st.rerun()
+            except (KeyError, LifePilotApiError) as error:
+                st.error(str(error))
+
+    if register_tab is not None:
+        with register_tab:
+            with st.form("registration-form", clear_on_submit=True):
+                register_username = st.text_input(
+                    "注册用户名",
+                    max_chars=64,
+                    autocomplete="username",
+                )
+                register_password = st.text_input(
+                    "设置密码",
+                    type="password",
+                    max_chars=1024,
+                    autocomplete="new-password",
+                    help="密码至少需要12个字符。",
+                )
+                confirm_password = st.text_input(
+                    "确认密码",
+                    type="password",
+                    max_chars=1024,
+                    autocomplete="new-password",
+                )
+                invite_code = st.text_input(
+                    "邀请码",
+                    type="password",
+                    max_chars=256,
+                    autocomplete="off",
+                )
+                register_clicked = st.form_submit_button(
+                    "创建账号",
+                    type="primary",
+                    use_container_width=True,
+                    disabled=not backend_available,
+                )
+
+            if register_clicked:
+                if register_password != confirm_password:
+                    st.error("两次输入的密码不一致。")
+                elif len(register_password) < 12:
+                    st.error("密码至少需要12个字符。")
+                else:
+                    try:
+                        result = anonymous_client.register(
+                            username=register_username,
+                            password=register_password,
+                            invite_code=invite_code,
+                        )
+                        st.session_state.access_token = result["access_token"]
+                        st.session_state.current_user = result["user"]
+                        st.success("账号创建成功。")
+                        st.rerun()
+                    except (KeyError, LifePilotApiError) as error:
+                        st.error(str(error))
 
     if not backend_available:
         st.error("后端服务未连接，请先启动 FastAPI。")
-
-    if login_clicked:
-        try:
-            anonymous_client = LifePilotApiClient(base_url=API_BASE_URL)
-            login_result = anonymous_client.login(username, password)
-            st.session_state.access_token = login_result["access_token"]
-            st.session_state.current_user = login_result["user"]
-            st.rerun()
-        except (KeyError, LifePilotApiError) as error:
-            st.error(str(error))
 
     st.stop()
 
@@ -152,6 +228,58 @@ with st.sidebar:
             client.logout()
         clear_authenticated_state()
         st.rerun()
+
+    if current_user.get("role") == "admin":
+        with st.expander("注册邀请"):
+            expires_in_hours = st.number_input(
+                "有效期（小时）",
+                min_value=1,
+                max_value=720,
+                value=72,
+                step=1,
+            )
+
+            if st.button(
+                "生成一次性邀请码",
+                use_container_width=True,
+            ):
+                try:
+                    invitation = client.create_invitation(int(expires_in_hours))
+                    st.success("请立即复制；刷新后无法再次查看原文。")
+                    st.code(invitation["invite_code"], language=None)
+                except (KeyError, LifePilotApiError) as error:
+                    st.error(str(error))
+
+            try:
+                invitations = client.list_invitations()
+            except LifePilotApiError as error:
+                invitations = []
+                st.warning(str(error))
+
+            for invitation in invitations:
+                invitation_id = invitation["id"]
+                if invitation.get("used_at"):
+                    invitation_state = f"已使用：{invitation.get('used_by_username')}"
+                elif invitation.get("revoked_at"):
+                    invitation_state = "已撤销"
+                else:
+                    invitation_state = "未使用"
+
+                st.caption(
+                    f"{invitation_id[:8]} · {invitation_state} · "
+                    f"过期：{invitation['expires_at']}"
+                )
+
+                if invitation_state == "未使用" and st.button(
+                    "撤销",
+                    key=f"revoke-invite-{invitation_id}",
+                ):
+                    try:
+                        client.revoke_invitation(invitation_id)
+                        st.success("邀请码已经撤销。")
+                        st.rerun()
+                    except LifePilotApiError as error:
+                        st.error(str(error))
 
     st.divider()
 

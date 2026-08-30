@@ -120,6 +120,57 @@ class LifePilotApiClient:
             },
         )
 
+    def get_registration_status(self) -> dict[str, Any]:
+        """读取后端注册策略。"""
+        return self._request_json(
+            method="GET",
+            path="/api/v1/auth/registration",
+        )
+
+    def register(
+        self,
+        username: str,
+        password: str,
+        invite_code: str,
+    ) -> dict[str, Any]:
+        """使用邀请码注册并返回 Session。"""
+        return self._request_json(
+            method="POST",
+            path="/api/v1/auth/register",
+            json={
+                "username": username,
+                "password": password,
+                "invite_code": invite_code,
+            },
+        )
+
+    def create_invitation(self, expires_in_hours: int) -> dict[str, Any]:
+        """管理员创建一次性邀请码。"""
+        return self._request_json(
+            method="POST",
+            path="/api/v1/admin/invitations",
+            json={"expires_in_hours": expires_in_hours},
+        )
+
+    def list_invitations(self) -> list[dict[str, Any]]:
+        """管理员查询邀请码列表。"""
+        data = self._request_json(
+            method="GET",
+            path="/api/v1/admin/invitations",
+        )
+        invitations = data.get("invitations", [])
+        if not isinstance(invitations, list):
+            raise LifePilotApiError("后端返回的邀请码列表格式不正确。")
+        return invitations
+
+    def revoke_invitation(self, invitation_id: str) -> bool:
+        """管理员撤销邀请码。"""
+        data = self._request_json(
+            method="DELETE",
+            path=(f"/api/v1/admin/invitations/{quote(invitation_id, safe='')}"),
+        )
+        return bool(data.get("revoked"))
+
     def get_current_user(self) -> dict[str, Any]:
         """读取当前 Session 对应的用户。"""
         return self._request_json(

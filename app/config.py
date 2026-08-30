@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     )
     auth_login_max_failures: int = Field(default=5, ge=1, le=20)
     auth_login_window_seconds: int = Field(default=900, ge=60, le=86_400)
+    registration_mode: Literal["closed", "invite"] = "closed"
+    auth_registration_max_failures: int = Field(default=10, ge=1, le=50)
+    auth_registration_window_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=86_400,
+    )
+    auth_invitation_max_ttl_hours: int = Field(
+        default=720,
+        ge=1,
+        le=720,
+    )
 
     app_database_path: Path = PROJECT_ROOT / "data" / "lifepilot.db"
 

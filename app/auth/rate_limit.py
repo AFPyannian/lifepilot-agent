@@ -30,6 +30,20 @@ class LoginRateLimiter:
         digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         return f"{client_host}:{digest}"
 
+    @staticmethod
+    def build_registration_key(
+        client_host: str,
+        username: str,
+        invite_code: str,
+    ) -> str:
+        """生成不包含用户名和邀请码原文的注册限流键。"""
+        normalized_username = username.strip().casefold()
+        normalized_invite = invite_code.strip()
+        digest = hashlib.sha256(
+            f"{normalized_username}\0{normalized_invite}".encode()
+        ).hexdigest()
+        return f"{client_host}:{digest}"
+
     def retry_after(self, key: str) -> int | None:
         """返回剩余限制秒数；未受限时返回 None。"""
         now = time.monotonic()

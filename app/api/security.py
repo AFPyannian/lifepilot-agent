@@ -15,14 +15,8 @@ bearer_scheme = HTTPBearer(
 )
 
 
-def require_current_user(
-    request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Security(bearer_scheme),
-    ],
-) -> Principal:
-    """验证 Session，并返回服务端可信用户身份。"""
+def get_auth_service(request: Request) -> AuthService:
+    """从应用状态读取认证服务。"""
     auth_service: AuthService | None = getattr(
         request.app.state,
         "auth_service",
@@ -33,7 +27,23 @@ def require_current_user(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="认证服务不可用。",
         )
+    return auth_service
 
+
+AuthServiceDependency = Annotated[
+    AuthService,
+    Depends(get_auth_service),
+]
+
+
+def require_current_user(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Security(bearer_scheme),
+    ],
+    auth_service: AuthServiceDependency,
+) -> Principal:
+    """验证 Session，并返回服务端可信用户身份。"""
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -54,4 +64,20 @@ def require_current_user(
 CurrentUser = Annotated[
     Principal,
     Depends(require_current_user),
+]
+
+
+def require_admin(current_user: CurrentUser) -> Principal:
+    """只允许管理员访问。"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限。",
+        )
+    return current_user
+
+
+AdminUser = Annotated[
+    Principal,
+    Depends(require_admin),
 ]

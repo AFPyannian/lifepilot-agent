@@ -171,7 +171,15 @@ DEEPSEEK_API_KEY=your-deepseek-api-key
 python -m scripts.user_admin create --username admin --role admin
 ```
 
-项目不开放公共注册。后续可使用同一命令创建普通用户，并通过管理命令禁用账号或重置密码：
+项目默认关闭注册。管理员账号创建完成后，可在 `.env` 中启用一次性邀请码注册：
+
+```env
+REGISTRATION_MODE=invite
+```
+
+重启后端后，管理员可以在 Streamlit 的“注册邀请”面板生成邀请码；新用户在登录页的“注册”标签中自行设置用户名和密码。邀请码只可使用一次，原文只向管理员展示一次。
+
+CLI 仍可用于直接创建用户、禁用账号或重置密码：
 
 ```powershell
 python -m scripts.user_admin create --username alice --role user
@@ -298,6 +306,8 @@ python -m evaluations.run_agent_eval --case add_todo
 - 登录失败按客户端 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
 - 用户身份只由服务端认证结果注入；待办、笔记、记忆、会话、Checkpoint、知识文件和向量元数据均按用户 UUID 隔离。
 - 账号、登录、密码和主要写操作记录审计事件。
+- 注册默认关闭；启用后仅接受管理员创建的一次性邀请码。
+- 注册用户固定为普通用户，客户端不能指定角色、状态或用户 ID。
 - 当前限流状态不跨进程共享，服务重启后会清空。
 
 ## 项目定位与限制
@@ -305,7 +315,7 @@ python -m evaluations.run_agent_eval --case add_todo
 LifePilot Agent 是支持多个本地账号的工程化作品，不是面向公网的分布式 SaaS。当前版本有意保持以下边界：
 
 - 使用 SQLite 和本地 Chroma，不支持多实例共享状态。
-- 不提供公开注册、OAuth、细粒度 RBAC 或账号管理 Web 页面；账号由本机管理员通过 CLI 管理。
+- 不提供公开匿名注册、OAuth、完整用户管理后台或细粒度 RBAC；管理员仅可通过 Web 管理一次性注册邀请。
 - 限流器位于进程内，不适用于分布式部署。
 - Session 是数据库中的不透明令牌；公网部署仍必须使用 HTTPS。
 - 知识库文件和长期记忆由本地管理员自行管理及备份。
