@@ -412,6 +412,42 @@ with st.sidebar:
                     except LifePilotApiError as error:
                         st.error(str(error))
 
+                try:
+                    quota = client.get_admin_user_quota(user_id)
+                    quota_requests, quota_tokens = st.columns(2)
+                    request_limit = quota_requests.number_input(
+                        "月请求上限（0 为不限）",
+                        min_value=0,
+                        value=int(quota.get("monthly_request_limit") or 0),
+                        step=1,
+                        key=f"quota-requests-{user_id}",
+                    )
+                    token_limit = quota_tokens.number_input(
+                        "月 Token 上限（0 为不限）",
+                        min_value=0,
+                        value=int(quota.get("monthly_token_limit") or 0),
+                        step=1000,
+                        key=f"quota-tokens-{user_id}",
+                    )
+                    st.caption(
+                        f"本月已预占 {quota['request_count']} 次请求 · "
+                        f"已结算 {quota['token_count']} Token"
+                    )
+                    if st.button("保存配额", key=f"save-quota-{user_id}"):
+                        client.update_admin_user_quota(
+                            user_id,
+                            monthly_request_limit=(
+                                None if request_limit == 0 else int(request_limit)
+                            ),
+                            monthly_token_limit=(
+                                None if token_limit == 0 else int(token_limit)
+                            ),
+                        )
+                        st.success("用户配额已更新。")
+                        st.rerun()
+                except (KeyError, LifePilotApiError) as error:
+                    st.warning(str(error))
+
             st.caption("最近审计事件")
             try:
                 for event in client.list_admin_audit_events(limit=20):

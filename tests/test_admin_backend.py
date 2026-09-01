@@ -8,9 +8,11 @@ from fastapi.testclient import TestClient
 from app.api.server import create_app
 from app.auth.passwords import hash_password
 from app.auth.service import AuthService
+from app.quota.service import QuotaService
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.entitlement_repository import EntitlementRepository
+from app.repositories.quota_repository import QuotaRepository
 from app.repositories.usage_repository import UsageRepository
 
 
@@ -37,6 +39,7 @@ def test_admin_can_manage_users_entitlements_audit_and_usage(tmp_path) -> None:
     audit_repository = AuditRepository(database_path)
     entitlement_repository = EntitlementRepository(database_path)
     usage_repository = UsageRepository(database_path)
+    quota_service = QuotaService(QuotaRepository(database_path))
     app = create_app(
         agent_graph=FakeGraph(),
         settings=SimpleNamespace(
@@ -49,6 +52,7 @@ def test_admin_can_manage_users_entitlements_audit_and_usage(tmp_path) -> None:
         audit_repository=audit_repository,
         entitlement_repository=entitlement_repository,
         usage_repository=usage_repository,
+        quota_service=quota_service,
     )
 
     with TestClient(app) as client:
@@ -97,3 +101,16 @@ def test_admin_can_manage_users_entitlements_audit_and_usage(tmp_path) -> None:
         usage = client.get("/api/v1/admin/usage/summary", headers=headers)
         assert usage.status_code == 200
         assert usage.json()["active_users"] == 0
+
+        quota = client.put(
+            "/api/v1/admin/users/user-id/quota",
+            headers=headers,
+            json={"monthly_request_limit": 100, "monthly_token_limit": 50_000},
+        )
+        assert quota.status_code == 200
+        assert quota.json()["monthly_request_limit"] == 100
+        assert quota.json()["monthly_token_limit"] == 50_000
+
+        quota = client.get("/api/v1/admin/users/user-id/quota", headers=headers)
+        assert quota.status_code == 200
+        assert quota.json()["request_count"] == 0

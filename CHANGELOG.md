@@ -29,6 +29,10 @@ The project follows [Semantic Versioning](https://semver.org/).
 - S3-compatible knowledge source storage, pgvector retrieval and Celery ingestion.
 - Administrator APIs and Streamlit views for users, entitlements, audit and usage.
 - Idempotent SQLite, Checkpoint and local knowledge migration tooling.
+- A production container stack for PostgreSQL/pgvector, Redis, MinIO, API,
+  Celery Worker and Streamlit with dependency-aware health checks.
+- Per-user monthly request and token quotas with atomic cross-instance accounting.
+- Opt-in integration tests for PostgreSQL, pgvector, Redis and S3-compatible storage.
 
 ### Changed
 
@@ -38,6 +42,8 @@ The project follows [Semantic Versioning](https://semver.org/).
   the original credential source.
 - Passed trusted request and public thread identifiers into each model invocation.
 - Kept SQLite, Chroma and local files as an explicit single-instance development mode.
+- Expanded readiness checks to cover the business database, Checkpoint database,
+  Redis and object storage before an instance receives traffic.
 
 ### Security
 

@@ -1,3 +1,37 @@
+x-app-environment: &app-environment
+  INFRASTRUCTURE_MODE: production
+  DATABASE_URL: postgresql+psycopg://lifepilot:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/lifepilot
+  CHECKPOINT_DATABASE_URL: postgresql://lifepilot:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/lifepilot
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/0
+  CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/1
+  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD}@redis:6379/2
+  OBJECT_STORAGE_ENDPOINT_URL: http://minio:9000
+  OBJECT_STORAGE_REGION: us-east-1
+  OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-lifepilot-knowledge}
+  OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+  OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+  OBJECT_STORAGE_SECURE: "false"
+  OBJECT_STORAGE_SSE: none
+  APP_ENVIRONMENT: production
+
+x-app-service: &app-service
+  image: lifepilot-agent:${LIFEPILOT_IMAGE_TAG:-phase4}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  env_file:
+    - .env
+  environment: *app-environment
+  volumes:
+    - ./models:/app/models:ro
+  init: true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -7,6 +41,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lifepilot -d lifepilot"]
       interval: 5s
@@ -19,6 +55,8 @@ services:
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}"]
     volumes:
       - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
@@ -27,19 +65,130 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
     volumes:
       - minio_data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
       timeout: 5s
       retries: 20
     restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-lifepilot-knowledge}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        && mc mb --ignore-existing "local/$$OBJECT_STORAGE_BUCKET"
+        && mc anonymous set none "local/$$OBJECT_STORAGE_BUCKET"
+    restart: "no"
+
+  database-init:
+    <<: *app-service
+    command: ["python", "scripts/initialize_production_database.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-service
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.api.server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "2"
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/api/v1/ready', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    <<: *app-service
+    command:
+      - celery
+      - -A
+      - app.tasks.celery_app.celery_app
+      - worker
+      - -Q
+      - knowledge
+      - --loglevel=INFO
+      - --concurrency=2
+    depends_on:
+      database-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  frontend:
+    <<: *app-service
+    command:
+      - streamlit
+      - run
+      - frontend/streamlit_app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+    environment:
+      <<: *app-environment
+      LIFEPILOT_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8501:8501"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
 volumes:
   postgres_data:

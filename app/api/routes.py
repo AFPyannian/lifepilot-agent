@@ -27,7 +27,7 @@ from app.api.schemas import (
 from app.api.security import CurrentUser
 from app.api.streaming import stream_chat_events
 from app.credentials.errors import CredentialError
-from app.exceptions import LifePilotError, ModelServiceError
+from app.exceptions import LifePilotError, ModelServiceError, QuotaExceededError
 from app.locks import execution_scope
 
 logger = logging.getLogger("lifepilot.api")
@@ -141,6 +141,12 @@ def chat(
     except AccessDeniedError as error:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
+            detail=error.user_message,
+        ) from None
+
+    except QuotaExceededError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=error.user_message,
         ) from None
 
@@ -348,6 +354,12 @@ def resume_chat(
     except AccessDeniedError as error:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
+            detail=error.user_message,
+        ) from None
+
+    except QuotaExceededError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=error.user_message,
         ) from None
 

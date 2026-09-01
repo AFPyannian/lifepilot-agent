@@ -1,13 +1,14 @@
 """基于 SQLAlchemy 2 的 PostgreSQL 生产仓储实现。"""
 # mypy: disable-error-code=attr-defined
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import cast
 from uuid import uuid4
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.access.models import (
     Capability,
@@ -37,13 +38,16 @@ from app.database_models import (
     EntitlementRow,
     NoteRow,
     ProviderCredentialRow,
+    QuotaUsageRow,
     RegistrationInviteRow,
     TodoRow,
     UsageEventRow,
     UserMemoryRow,
     UserProfileRow,
+    UserQuotaRow,
     UserRow,
 )
+from app.quota.models import QuotaStatus, UserQuota
 from app.repositories.audit_repository import AuditEvent, AuditRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.conversation_repository import (
@@ -53,6 +57,7 @@ from app.repositories.conversation_repository import (
 from app.repositories.entitlement_repository import EntitlementRepository
 from app.repositories.note_repository import NoteItem, NoteRepository
 from app.repositories.provider_credential_repository import ProviderCredentialRepository
+from app.repositories.quota_repository import QuotaRepository
 from app.repositories.todo_repository import TodoItem, TodoRepository
 from app.repositories.usage_repository import UsageRepository
 from app.repositories.user_memory_repository import (
@@ -1062,6 +1067,129 @@ class PostgresEntitlementRepository(EntitlementRepository):
                 .values(status="revoked", revoked_at=datetime.now(UTC))
             )
             return bool(result.rowcount)
+
+
+class PostgresQuotaRepository(QuotaRepository):
+    """使用事务 advisory lock 原子维护跨实例配额计数。"""
+
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    @staticmethod
+    def _quota(row: UserQuotaRow | None, user_id: str) -> UserQuota:
+        if row is None:
+            return UserQuota(user_id, None, None, None, datetime.now(UTC))
+        return UserQuota(
+            user_id=row.user_id,
+            monthly_request_limit=row.monthly_request_limit,
+            monthly_token_limit=row.monthly_token_limit,
+            updated_by=row.updated_by,
+            updated_at=row.updated_at,
+        )
+
+    @staticmethod
+    def _lock(session: Session, user_id: str, period_start: date) -> None:
+        session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:scope, 0))"),
+            {"scope": f"quota:{user_id}:{period_start.isoformat()}"},
+        )
+
+    def get_status(self, user_id: str, period_start: date) -> QuotaStatus:
+        with self._database.session() as session:
+            quota = self._quota(session.get(UserQuotaRow, user_id), user_id)
+            usage = session.get(QuotaUsageRow, (user_id, period_start))
+            return QuotaStatus(
+                quota=quota,
+                period_start=period_start,
+                request_count=0 if usage is None else usage.request_count,
+                token_count=0 if usage is None else usage.token_count,
+            )
+
+    def set_quota(
+        self,
+        *,
+        user_id: str,
+        monthly_request_limit: int | None,
+        monthly_token_limit: int | None,
+        updated_by: str | None,
+    ) -> UserQuota:
+        self._validate_limit(monthly_request_limit)
+        self._validate_limit(monthly_token_limit)
+        updated_at = datetime.now(UTC)
+        statement = (
+            insert(UserQuotaRow)
+            .values(
+                user_id=user_id,
+                monthly_request_limit=monthly_request_limit,
+                monthly_token_limit=monthly_token_limit,
+                updated_by=updated_by,
+                updated_at=updated_at,
+            )
+            .on_conflict_do_update(
+                index_elements=["user_id"],
+                set_={
+                    "monthly_request_limit": monthly_request_limit,
+                    "monthly_token_limit": monthly_token_limit,
+                    "updated_by": updated_by,
+                    "updated_at": updated_at,
+                },
+            )
+        )
+        with self._database.session() as session:
+            session.execute(statement)
+        return UserQuota(
+            user_id,
+            monthly_request_limit,
+            monthly_token_limit,
+            updated_by,
+            updated_at,
+        )
+
+    def reserve_model_request(self, user_id: str, period_start: date) -> bool:
+        with self._database.session() as session:
+            self._lock(session, user_id, period_start)
+            quota = self._quota(session.get(UserQuotaRow, user_id), user_id)
+            usage = session.get(QuotaUsageRow, (user_id, period_start))
+            requests = 0 if usage is None else usage.request_count
+            tokens = 0 if usage is None else usage.token_count
+            if (
+                quota.monthly_request_limit is not None
+                and requests >= quota.monthly_request_limit
+            ) or (
+                quota.monthly_token_limit is not None
+                and tokens >= quota.monthly_token_limit
+            ):
+                return False
+            if usage is None:
+                session.add(
+                    QuotaUsageRow(
+                        user_id=user_id,
+                        period_start=period_start,
+                        request_count=1,
+                        token_count=0,
+                    )
+                )
+            else:
+                usage.request_count += 1
+            return True
+
+    def add_tokens(self, user_id: str, period_start: date, tokens: int) -> None:
+        if tokens <= 0:
+            return
+        with self._database.session() as session:
+            self._lock(session, user_id, period_start)
+            usage = session.get(QuotaUsageRow, (user_id, period_start))
+            if usage is None:
+                session.add(
+                    QuotaUsageRow(
+                        user_id=user_id,
+                        period_start=period_start,
+                        request_count=0,
+                        token_count=tokens,
+                    )
+                )
+            else:
+                usage.token_count += tokens
 
 
 class PostgresUsageRepository(UsageRepository):

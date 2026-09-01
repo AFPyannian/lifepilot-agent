@@ -211,6 +211,30 @@ class LifePilotApiClient:
             params={"days": days},
         )
 
+    def get_admin_user_quota(self, user_id: str) -> dict[str, Any]:
+        """管理员查询用户当前月度模型配额。"""
+        return self._request_json(
+            method="GET",
+            path=f"/api/v1/admin/users/{quote(user_id, safe='')}/quota",
+        )
+
+    def update_admin_user_quota(
+        self,
+        user_id: str,
+        *,
+        monthly_request_limit: int | None,
+        monthly_token_limit: int | None,
+    ) -> dict[str, Any]:
+        """管理员设置用户月度请求和 Token 上限。"""
+        return self._request_json(
+            method="PUT",
+            path=f"/api/v1/admin/users/{quote(user_id, safe='')}/quota",
+            json={
+                "monthly_request_limit": monthly_request_limit,
+                "monthly_token_limit": monthly_token_limit,
+            },
+        )
+
     def get_current_user(self) -> dict[str, Any]:
         """读取当前 Session 对应的用户。"""
         return self._request_json(

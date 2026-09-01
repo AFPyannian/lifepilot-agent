@@ -13,6 +13,7 @@ from app.config import Settings
 from app.credentials.service import ProviderCredentialService
 from app.exceptions import ModelServiceError
 from app.model import create_model
+from app.quota.service import QuotaService
 from app.usage.models import ModelInvocationContext, UsageEvent
 from app.usage.service import UsageTracker
 
@@ -60,11 +61,13 @@ class DeepSeekModelGateway:
         credential_service: ProviderCredentialService,
         access_policy: AccessPolicyProtocol,
         usage_tracker: UsageTracker,
+        quota_service: QuotaService | None = None,
     ) -> None:
         self._settings = settings
         self._credential_service = credential_service
         self._access_policy = access_policy
         self._usage_tracker = usage_tracker
+        self._quota_service = quota_service
 
     def invoke(
         self,
@@ -97,6 +100,9 @@ class DeepSeekModelGateway:
             api_key = self._settings.deepseek_api_key
         else:
             raise ModelServiceError("Unknown model mode.")
+
+        if self._quota_service is not None:
+            self._quota_service.reserve_model_request(context.user_id)
 
         try:
             model = create_model(self._settings, api_key=api_key)
@@ -152,6 +158,18 @@ class DeepSeekModelGateway:
                 "Usage event finalization failed event_id=%s status=succeeded",
                 event.event_id,
             )
+
+        if self._quota_service is not None:
+            try:
+                self._quota_service.record_tokens(
+                    context.user_id,
+                    self._usage_tracker.total_tokens(response),
+                )
+            except Exception:
+                logger.warning(
+                    "Quota token accounting failed user_id=%s",
+                    context.user_id,
+                )
 
         if credential_id is not None:
             try:

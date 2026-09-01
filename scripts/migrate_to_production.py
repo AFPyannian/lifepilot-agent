@@ -21,6 +21,8 @@ from app.knowledge.production_service import ProductionKnowledgeService
 
 TABLE_ORDER = (
     "users",
+    "user_quotas",
+    "quota_usage",
     "auth_sessions",
     "registration_invites",
     "todos",

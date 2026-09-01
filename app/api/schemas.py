@@ -1,6 +1,6 @@
 """定义 LifePilot HTTP API 的请求和响应模型。"""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -141,6 +141,26 @@ class AdminUsageSummaryResponse(BaseModel):
     total_tokens: int
     byok_calls: int
     platform_calls: int
+
+
+class AdminQuotaRequest(BaseModel):
+    """表示管理员设置的月度模型硬上限。"""
+
+    monthly_request_limit: int | None = Field(default=None, ge=1)
+    monthly_token_limit: int | None = Field(default=None, ge=1)
+
+
+class AdminQuotaResponse(BaseModel):
+    """表示用户当前月的配额配置和已使用计数。"""
+
+    user_id: str
+    period_start: date
+    monthly_request_limit: int | None
+    monthly_token_limit: int | None
+    request_count: int
+    token_count: int
+    updated_by: str | None
+    updated_at: datetime
 
 
 class AdminEntitlementRequest(BaseModel):

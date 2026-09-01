@@ -40,6 +40,7 @@ from app.logging_config import configure_logging, shutdown_logging
 from app.model import DeepSeekCredentialValidator
 from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
+from app.quota.service import QuotaRepositoryProtocol, QuotaService
 from app.redis_rate_limit import RedisApiRateLimiter, RedisLoginRateLimiter
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.auth_repository import AuthRepository
@@ -52,6 +53,7 @@ from app.repositories.postgres import (
     PostgresEntitlementRepository,
     PostgresNoteRepository,
     PostgresProviderCredentialRepository,
+    PostgresQuotaRepository,
     PostgresTodoRepository,
     PostgresUsageRepository,
     PostgresUserMemoryRepository,
@@ -59,6 +61,7 @@ from app.repositories.postgres import (
 from app.repositories.provider_credential_repository import (
     ProviderCredentialRepository,
 )
+from app.repositories.quota_repository import QuotaRepository
 from app.repositories.usage_repository import UsageRepository
 from app.usage.service import UsageTracker
 
@@ -76,6 +79,7 @@ def create_app(
     access_policy: AccessPolicyProtocol | None = None,
     entitlement_repository: EntitlementRepository | None = None,
     usage_repository: UsageRepository | None = None,
+    quota_service: QuotaService | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
 
@@ -113,6 +117,7 @@ def create_app(
             application.state.access_policy = access_policy or AllowAllAccessPolicy()
             application.state.entitlement_repository = entitlement_repository
             application.state.usage_repository = usage_repository
+            application.state.quota_service = quota_service
 
             application.state.checkpointer = getattr(agent_graph, "checkpointer", None)
 
@@ -133,6 +138,7 @@ def create_app(
         try:
             active_auth_repository: AuthRepository
             active_credential_repository: ProviderCredentialRepository
+            active_quota_repository: QuotaRepositoryProtocol
             if active_settings.infrastructure_mode == "production":
                 active_database = Database(active_settings)
                 active_auth_repository = PostgresAuthRepository(active_database)
@@ -149,6 +155,7 @@ def create_app(
                 active_usage_repository = usage_repository or PostgresUsageRepository(
                     active_database
                 )
+                active_quota_repository = PostgresQuotaRepository(active_database)
                 active_todo_repository = PostgresTodoRepository(active_database)
                 active_note_repository = PostgresNoteRepository(active_database)
                 active_memory_repository = PostgresUserMemoryRepository(active_database)
@@ -171,6 +178,9 @@ def create_app(
                     or EntitlementRepository(active_settings.app_database_path)
                 )
                 active_usage_repository = usage_repository or UsageRepository(
+                    active_settings.app_database_path
+                )
+                active_quota_repository = QuotaRepository(
                     active_settings.app_database_path
                 )
                 active_todo_repository = None
@@ -264,11 +274,15 @@ def create_app(
                 credential_service=active_credential_service,
             )
             active_usage_tracker = UsageTracker(active_usage_repository)
+            active_quota_service = quota_service or QuotaService(
+                active_quota_repository
+            )
             active_model_gateway = DeepSeekModelGateway(
                 settings=active_settings,
                 credential_service=active_credential_service,
                 access_policy=active_access_policy,
                 usage_tracker=active_usage_tracker,
+                quota_service=active_quota_service,
             )
 
             active_knowledge_service: Any
@@ -346,6 +360,7 @@ def create_app(
                 application.state.access_policy = active_access_policy
                 application.state.entitlement_repository = active_entitlement_repository
                 application.state.usage_repository = active_usage_repository
+                application.state.quota_service = active_quota_service
                 application.state.api_rate_limiter = active_api_rate_limiter
 
                 yield

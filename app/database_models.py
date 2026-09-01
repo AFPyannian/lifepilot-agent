@@ -1,12 +1,13 @@
 """声明生产业务库表结构；实际建表由 Alembic 管理。"""
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -268,6 +269,47 @@ class UsageEventRow(Base):
         CheckConstraint(
             "duration_ms IS NULL OR duration_ms >= 0", name="ck_usage_duration"
         ),
+    )
+
+
+class UserQuotaRow(Base):
+    __tablename__ = "user_quotas"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    monthly_request_limit: Mapped[int | None] = mapped_column(Integer)
+    monthly_token_limit: Mapped[int | None] = mapped_column(BigInteger)
+    updated_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "monthly_request_limit IS NULL OR monthly_request_limit > 0",
+            name="ck_user_quotas_requests",
+        ),
+        CheckConstraint(
+            "monthly_token_limit IS NULL OR monthly_token_limit > 0",
+            name="ck_user_quotas_tokens",
+        ),
+    )
+
+
+class QuotaUsageRow(Base):
+    __tablename__ = "quota_usage"
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    period_start: Mapped[date] = mapped_column(Date, primary_key=True)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+    token_count: Mapped[int] = mapped_column(BigInteger, default=0)
+
+    __table_args__ = (
+        CheckConstraint("request_count >= 0", name="ck_quota_usage_requests"),
+        CheckConstraint("token_count >= 0", name="ck_quota_usage_tokens"),
     )
 
 

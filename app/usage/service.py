@@ -48,6 +48,10 @@ class UsageTracker:
             duration_ms=self._duration_ms(event.started_at, completed_at),
         )
 
+    def total_tokens(self, response: Any) -> int | None:
+        """提取配额结算使用的总 Token，不暴露响应正文。"""
+        return self._extract_tokens(response)[2]
+
     def fail(self, event: UsageEvent, error_code: str) -> bool:
         completed_at = datetime.now(UTC)
         return self._repository.mark_failed(

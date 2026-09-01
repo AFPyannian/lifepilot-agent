@@ -32,3 +32,9 @@ class ExecutionBusyError(LifePilotError):
     """表示同一用户会话正在另一个实例中执行。"""
 
     default_user_message = "当前会话正在处理另一项请求，请稍后重试。"
+
+
+class QuotaExceededError(LifePilotError):
+    """表示用户本月模型请求或 Token 配额已经耗尽。"""
+
+    default_user_message = "本月模型使用配额已用完，请联系管理员。"

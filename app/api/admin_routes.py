@@ -13,6 +13,8 @@ from app.api.schemas import (
     AdminEntitlementItem,
     AdminEntitlementListResponse,
     AdminEntitlementRequest,
+    AdminQuotaRequest,
+    AdminQuotaResponse,
     AdminUsageSummaryResponse,
     AdminUserItem,
     AdminUserListResponse,
@@ -50,6 +52,20 @@ def _entitlement_item(record: Any) -> AdminEntitlementItem:
         created_by=record.created_by,
         created_at=record.created_at,
         revoked_at=record.revoked_at,
+    )
+
+
+def _quota_response(status_record: Any) -> AdminQuotaResponse:
+    quota = status_record.quota
+    return AdminQuotaResponse(
+        user_id=quota.user_id,
+        period_start=status_record.period_start,
+        monthly_request_limit=quota.monthly_request_limit,
+        monthly_token_limit=quota.monthly_token_limit,
+        request_count=status_record.request_count,
+        token_count=status_record.token_count,
+        updated_by=quota.updated_by,
+        updated_at=quota.updated_at,
     )
 
 
@@ -155,6 +171,57 @@ def get_admin_usage_summary(
         since=since, until=until
     )
     return AdminUsageSummaryResponse(since=since, until=until, **summary)
+
+
+@router.get(
+    "/users/{user_id}/quota",
+    response_model=AdminQuotaResponse,
+    summary="查询用户月度模型配额",
+)
+def get_user_quota(
+    user_id: str, request: Request, _current_admin: AdminUser
+) -> AdminQuotaResponse:
+    auth_repository = _state_dependency(request, "auth_repository")
+    if auth_repository.get_user_by_id(user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在。"
+        )
+    service = _state_dependency(request, "quota_service")
+    return _quota_response(service.get_status(user_id))
+
+
+@router.put(
+    "/users/{user_id}/quota",
+    response_model=AdminQuotaResponse,
+    summary="设置用户月度模型配额",
+)
+def set_user_quota(
+    user_id: str,
+    payload: AdminQuotaRequest,
+    request: Request,
+    current_admin: AdminUser,
+) -> AdminQuotaResponse:
+    auth_repository = _state_dependency(request, "auth_repository")
+    if auth_repository.get_user_by_id(user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在。"
+        )
+    service = _state_dependency(request, "quota_service")
+    service.set_quota(
+        user_id=user_id,
+        monthly_request_limit=payload.monthly_request_limit,
+        monthly_token_limit=payload.monthly_token_limit,
+        updated_by=current_admin.user_id,
+    )
+    record_audit_event(
+        request,
+        user_id=current_admin.user_id,
+        action="quota.updated",
+        resource_type="user_quota",
+        resource_id=user_id,
+        outcome="success",
+    )
+    return _quota_response(service.get_status(user_id))
 
 
 @router.get(

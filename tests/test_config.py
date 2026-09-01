@@ -120,7 +120,12 @@ def test_unknown_legacy_api_key_settings_are_ignored() -> None:
     assert "secret-lifepilot-key" not in repr(settings)
 
 
-def test_byok_requires_a_valid_versioned_master_key() -> None:
+def test_byok_requires_a_valid_versioned_master_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BYOK_ENABLED", raising=False)
+    monkeypatch.delenv("PROVIDER_CREDENTIAL_MASTER_KEYS", raising=False)
+    monkeypatch.delenv("PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION", raising=False)
     with pytest.raises(ValidationError):
         Settings(
             _env_file=None,
