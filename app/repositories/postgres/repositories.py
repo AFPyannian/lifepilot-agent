@@ -47,28 +47,19 @@ from app.database_models import (
     UserQuotaRow,
     UserRow,
 )
-from app.quota.models import QuotaStatus, UserQuota
-from app.repositories.audit_repository import AuditEvent, AuditRepository
-from app.repositories.auth_repository import AuthRepository
-from app.repositories.conversation_repository import (
+from app.domain.models import (
+    AuditEvent,
     Conversation,
-    ConversationRepository,
-)
-from app.repositories.entitlement_repository import EntitlementRepository
-from app.repositories.note_repository import NoteItem, NoteRepository
-from app.repositories.provider_credential_repository import ProviderCredentialRepository
-from app.repositories.quota_repository import QuotaRepository
-from app.repositories.todo_repository import TodoItem, TodoRepository
-from app.repositories.usage_repository import UsageRepository
-from app.repositories.user_memory_repository import (
+    NoteItem,
+    TodoItem,
     UserMemory,
-    UserMemoryRepository,
     UserProfile,
 )
+from app.quota.models import QuotaStatus, UserQuota
 from app.usage.models import UsageEvent, UsageStatus, UsageSummary
 
 
-class PostgresAuthRepository(AuthRepository):
+class PostgresAuthRepository:
     """使用 PostgreSQL 事务管理账号、Session 和邀请码。"""
 
     def __init__(self, database: Database) -> None:
@@ -401,7 +392,7 @@ class PostgresAuthRepository(AuthRepository):
             raise UsernameUnavailableError("用户名不可用。") from error
 
 
-class PostgresTodoRepository(TodoRepository):
+class PostgresTodoRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -456,7 +447,7 @@ class PostgresTodoRepository(TodoRepository):
             return bool(result.rowcount)
 
 
-class PostgresNoteRepository(NoteRepository):
+class PostgresNoteRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -561,7 +552,7 @@ class PostgresNoteRepository(NoteRepository):
             return bool(result.rowcount)
 
 
-class PostgresConversationRepository(ConversationRepository):
+class PostgresConversationRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -651,7 +642,7 @@ class PostgresConversationRepository(ConversationRepository):
             return bool(result.rowcount)
 
 
-class PostgresUserMemoryRepository(UserMemoryRepository):
+class PostgresUserMemoryRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -801,7 +792,7 @@ class PostgresUserMemoryRepository(UserMemoryRepository):
             return bool(result.rowcount)
 
 
-class PostgresProviderCredentialRepository(ProviderCredentialRepository):
+class PostgresProviderCredentialRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -970,7 +961,7 @@ class PostgresProviderCredentialRepository(ProviderCredentialRepository):
             return bool(result.rowcount)
 
 
-class PostgresEntitlementRepository(EntitlementRepository):
+class PostgresEntitlementRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -1069,7 +1060,7 @@ class PostgresEntitlementRepository(EntitlementRepository):
             return bool(result.rowcount)
 
 
-class PostgresQuotaRepository(QuotaRepository):
+class PostgresQuotaRepository:
     """使用事务 advisory lock 原子维护跨实例配额计数。"""
 
     def __init__(self, database: Database) -> None:
@@ -1192,7 +1183,7 @@ class PostgresQuotaRepository(QuotaRepository):
                 usage.token_count += tokens
 
 
-class PostgresUsageRepository(UsageRepository):
+class PostgresUsageRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 
@@ -1381,7 +1372,7 @@ class PostgresUsageRepository(UsageRepository):
         return {key: int(row[index] or 0) for index, key in enumerate(keys)}
 
 
-class PostgresAuditRepository(AuditRepository):
+class PostgresAuditRepository:
     def __init__(self, database: Database) -> None:
         self._database = database
 

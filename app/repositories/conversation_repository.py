@@ -2,20 +2,10 @@
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class Conversation:
-    """表示一条会话元数据记录。"""
-
-    owner_id: str
-    thread_id: str
-    title: str
-    created_at: datetime
-    updated_at: datetime
+from app.domain.models import Conversation
 
 
 class ConversationRepository:

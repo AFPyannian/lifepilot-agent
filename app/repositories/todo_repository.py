@@ -2,20 +2,10 @@
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class TodoItem:
-    """表示数据库中的一条待办事项。"""
-
-    id: int
-    owner_id: str
-    task: str
-    is_completed: bool
-    created_at: str
+from app.domain.models import TodoItem
 
 
 class TodoRepository:

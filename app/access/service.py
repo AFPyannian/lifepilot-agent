@@ -3,13 +3,13 @@
 from datetime import datetime
 
 from app.access.models import Capability, EntitlementRecord, EntitlementSource
-from app.repositories.entitlement_repository import EntitlementRepository
+from app.repositories.protocols import EntitlementRepositoryProtocol
 
 
 class EntitlementService:
     """封装授权发放、撤销和查询。"""
 
-    def __init__(self, repository: EntitlementRepository) -> None:
+    def __init__(self, repository: EntitlementRepositoryProtocol) -> None:
         self._repository = repository
 
     def grant_admin(

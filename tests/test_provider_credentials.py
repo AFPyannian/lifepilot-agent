@@ -227,6 +227,7 @@ def test_master_key_rotation_rewraps_existing_ciphertext(tmp_path, monkeypatch) 
     keyring = {"v1": b"a" * 32, "v2": b"b" * 32}
     fake_settings = SimpleNamespace(
         app_database_path=database_path,
+        infrastructure_mode="local",
         provider_credential_active_key_version="v2",
         provider_credential_keyring=lambda: keyring,
     )

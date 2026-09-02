@@ -112,8 +112,10 @@ lifepilot-agent/
 │   ├── auth/                # 密码哈希、Session 服务和登录限流
 │   ├── clients/             # Streamlit 使用的后端 API 客户端
 │   ├── credentials/         # 用户模型凭据加密与生命周期管理
+│   ├── domain/              # 与数据库实现无关的共享领域模型
+│   ├── infrastructure/      # local/production 仓储装配工厂
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
-│   ├── repositories/        # SQLite 与 PostgreSQL 数据访问层
+│   ├── repositories/        # 共享协议及 SQLite/PostgreSQL 适配器
 │   ├── storage/             # S3 兼容对象存储
 │   ├── tasks/               # Celery 后台任务
 │   ├── tools/               # Agent 工具

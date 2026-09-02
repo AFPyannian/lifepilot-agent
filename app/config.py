@@ -96,7 +96,6 @@ class Settings(BaseSettings):
     object_storage_sse: Literal["none", "AES256"] = "AES256"
 
     celery_broker_url: SecretStr | None = None
-    celery_result_backend: SecretStr | None = None
     knowledge_worker_queue: str = Field(default="knowledge", min_length=1)
     knowledge_task_max_retries: int = Field(default=3, ge=0, le=10)
 
@@ -289,7 +288,6 @@ class Settings(BaseSettings):
             "OBJECT_STORAGE_ACCESS_KEY": self.object_storage_access_key,
             "OBJECT_STORAGE_SECRET_KEY": self.object_storage_secret_key,
             "CELERY_BROKER_URL": self.celery_broker_url,
-            "CELERY_RESULT_BACKEND": self.celery_result_backend,
         }
         missing = [
             name

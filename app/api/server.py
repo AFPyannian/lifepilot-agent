@@ -30,9 +30,9 @@ from app.checkpointing import open_postgres_checkpointer, open_sqlite_checkpoint
 from app.config import Settings, apply_runtime_environment, get_settings
 from app.credentials.crypto import CredentialCipher
 from app.credentials.service import ProviderCredentialService
-from app.database import Database
 from app.exceptions import ExecutionBusyError
 from app.graph import build_graph
+from app.infrastructure import create_repositories
 from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.knowledge.production_service import ProductionKnowledgeService
 from app.locks import LocalExecutionLock, PostgresExecutionLock
@@ -40,29 +40,17 @@ from app.logging_config import configure_logging, shutdown_logging
 from app.model import DeepSeekCredentialValidator
 from app.model_gateway import DeepSeekModelGateway
 from app.observability import configure_observability
-from app.quota.service import QuotaRepositoryProtocol, QuotaService
+from app.quota.service import QuotaService
 from app.redis_rate_limit import RedisApiRateLimiter, RedisLoginRateLimiter
-from app.repositories.audit_repository import AuditRepository
-from app.repositories.auth_repository import AuthRepository
-from app.repositories.conversation_repository import ConversationRepository
-from app.repositories.entitlement_repository import EntitlementRepository
-from app.repositories.postgres import (
-    PostgresAuditRepository,
-    PostgresAuthRepository,
-    PostgresConversationRepository,
-    PostgresEntitlementRepository,
-    PostgresNoteRepository,
-    PostgresProviderCredentialRepository,
-    PostgresQuotaRepository,
-    PostgresTodoRepository,
-    PostgresUsageRepository,
-    PostgresUserMemoryRepository,
+from app.repositories.protocols import (
+    AuditRepositoryProtocol,
+    AuthRepositoryProtocol,
+    ConversationRepositoryProtocol,
+    EntitlementRepositoryProtocol,
+    ProviderCredentialRepositoryProtocol,
+    QuotaRepositoryProtocol,
+    UsageRepositoryProtocol,
 )
-from app.repositories.provider_credential_repository import (
-    ProviderCredentialRepository,
-)
-from app.repositories.quota_repository import QuotaRepository
-from app.repositories.usage_repository import UsageRepository
 from app.usage.service import UsageTracker
 
 
@@ -70,15 +58,15 @@ def create_app(
     agent_graph: Any | None = None,
     knowledge_service: KnowledgeBaseService | None = None,
     settings: Settings | None = None,
-    conversation_repository: ConversationRepository | None = None,
+    conversation_repository: ConversationRepositoryProtocol | None = None,
     auth_service: AuthService | None = None,
-    audit_repository: AuditRepository | None = None,
+    audit_repository: AuditRepositoryProtocol | None = None,
     login_rate_limiter: LoginRateLimiter | None = None,
     registration_rate_limiter: LoginRateLimiter | None = None,
     provider_credential_service: ProviderCredentialService | None = None,
     access_policy: AccessPolicyProtocol | None = None,
-    entitlement_repository: EntitlementRepository | None = None,
-    usage_repository: UsageRepository | None = None,
+    entitlement_repository: EntitlementRepositoryProtocol | None = None,
+    usage_repository: UsageRepositoryProtocol | None = None,
     quota_service: QuotaService | None = None,
 ) -> FastAPI:
     """创建可注入测试依赖的 FastAPI 应用。"""
@@ -132,64 +120,27 @@ def create_app(
 
         configure_observability(active_settings)
 
-        active_database: Database | None = None
+        active_database = None
         active_api_rate_limiter: RedisApiRateLimiter | None = None
         active_redis_auth_limiters: list[RedisLoginRateLimiter] = []
         try:
-            active_auth_repository: AuthRepository
-            active_credential_repository: ProviderCredentialRepository
-            active_quota_repository: QuotaRepositoryProtocol
-            if active_settings.infrastructure_mode == "production":
-                active_database = Database(active_settings)
-                active_auth_repository = PostgresAuthRepository(active_database)
-                active_audit_repository = audit_repository or PostgresAuditRepository(
-                    active_database
-                )
-                active_credential_repository = PostgresProviderCredentialRepository(
-                    active_database
-                )
-                active_entitlement_repository = (
-                    entitlement_repository
-                    or PostgresEntitlementRepository(active_database)
-                )
-                active_usage_repository = usage_repository or PostgresUsageRepository(
-                    active_database
-                )
-                active_quota_repository = PostgresQuotaRepository(active_database)
-                active_todo_repository = PostgresTodoRepository(active_database)
-                active_note_repository = PostgresNoteRepository(active_database)
-                active_memory_repository = PostgresUserMemoryRepository(active_database)
-                if active_conversation_repository is None:
-                    active_conversation_repository = PostgresConversationRepository(
-                        active_database
-                    )
-            else:
-                active_auth_repository = AuthRepository(
-                    active_settings.app_database_path
-                )
-                active_audit_repository = audit_repository or AuditRepository(
-                    active_settings.app_database_path
-                )
-                active_credential_repository = ProviderCredentialRepository(
-                    active_settings.app_database_path
-                )
-                active_entitlement_repository = (
-                    entitlement_repository
-                    or EntitlementRepository(active_settings.app_database_path)
-                )
-                active_usage_repository = usage_repository or UsageRepository(
-                    active_settings.app_database_path
-                )
-                active_quota_repository = QuotaRepository(
-                    active_settings.app_database_path
-                )
-                active_todo_repository = None
-                active_note_repository = None
-                active_memory_repository = None
-                if active_conversation_repository is None:
-                    active_conversation_repository = ConversationRepository(
-                        active_settings.app_database_path
-                    )
+            repositories = create_repositories(active_settings)
+            active_database = repositories.database
+            active_auth_repository: AuthRepositoryProtocol = repositories.auth
+            active_audit_repository = audit_repository or repositories.audit
+            active_credential_repository: ProviderCredentialRepositoryProtocol = (
+                repositories.provider_credential
+            )
+            active_entitlement_repository = (
+                entitlement_repository or repositories.entitlement
+            )
+            active_usage_repository = usage_repository or repositories.usage
+            active_quota_repository: QuotaRepositoryProtocol = repositories.quota
+            active_todo_repository = repositories.todo
+            active_note_repository = repositories.note
+            active_memory_repository = repositories.user_memory
+            if active_conversation_repository is None:
+                active_conversation_repository = repositories.conversation
 
             active_auth_service = auth_service or AuthService(
                 repository=active_auth_repository,

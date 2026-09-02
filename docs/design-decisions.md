@@ -1,6 +1,6 @@
 # 关键设计决策
 
-本文记录 LifePilot v1.0.0 的主要工程取舍。它们服务于“个人本地 Agent + 可公开审阅的求职作品”这一目标，并不试图覆盖所有生产级场景。
+本文记录 LifePilot 从 v1.0.0 本地版本演进为 local/production 双 profile 后的主要工程取舍。项目兼顾克隆后快速体验与多实例生产部署，但不试图覆盖所有生产级场景。
 
 ## 1. 使用 LangGraph 管理 Agent 工作流
 
@@ -327,7 +327,7 @@ PDF 解析和向量化不应占用 API 请求；源文件和向量索引具有�
 
 ### 决策
 
-登录失败和 API 滑动窗口限流使用 Redis 原子脚本，Celery 也可使用 Redis Broker/结果后端；账号、授权、用量和知识元数据仍以 PostgreSQL 为准。
+登录失败和 API 滑动窗口限流使用 Redis 原子脚本，Celery 使用 Redis Broker；账号、授权、用量、知识任务状态和元数据仍以 PostgreSQL 为准。Celery 不保存重复的任务结果。
 
 ### 原因
 

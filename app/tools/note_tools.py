@@ -4,11 +4,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
+from app.domain.models import NoteItem
 from app.identity import user_id_from_config
-from app.repositories.note_repository import (
-    NoteItem,
-    NoteRepository,
-)
+from app.repositories.protocols import NoteRepositoryProtocol
 
 
 def _format_note_summary(
@@ -24,7 +22,7 @@ def _format_note_summary(
 
 
 def create_note_tools(
-    repository: NoteRepository,
+    repository: NoteRepositoryProtocol,
 ) -> list[BaseTool]:
     """创建从可信运行上下文读取用户身份的笔记工具。"""
 

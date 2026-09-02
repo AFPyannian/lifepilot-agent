@@ -1,8 +1,6 @@
 """将用户资料和长期记忆整理为模型上下文。"""
 
-from app.repositories.user_memory_repository import (
-    UserMemoryRepository,
-)
+from app.repositories.protocols import UserMemoryRepositoryProtocol
 
 """
 创建自动注入的记忆上下文
@@ -10,7 +8,7 @@ from app.repositories.user_memory_repository import (
 
 
 def build_user_memory_context(
-    repository: UserMemoryRepository,
+    repository: UserMemoryRepositoryProtocol,
     owner_id: str,
     memory_limit: int = 20,
 ) -> str:

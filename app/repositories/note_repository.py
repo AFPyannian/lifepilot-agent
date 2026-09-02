@@ -2,21 +2,10 @@
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-
-@dataclass(frozen=True)
-class NoteItem:
-    """表示数据库中的一条笔记。"""
-
-    id: int
-    owner_id: str
-    title: str
-    content: str
-    created_at: str
-    updated_at: str
+from app.domain.models import NoteItem
 
 
 class NoteRepository:

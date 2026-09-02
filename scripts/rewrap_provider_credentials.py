@@ -4,9 +4,7 @@ import argparse
 
 from app.config import get_settings
 from app.credentials.crypto import CredentialCipher
-from app.repositories.provider_credential_repository import (
-    ProviderCredentialRepository,
-)
+from app.infrastructure import create_repositories
 
 
 def rewrap_credentials(source_version: str) -> int:
@@ -22,38 +20,43 @@ def rewrap_credentials(source_version: str) -> int:
     if target_version not in keyring:
         raise ValueError("活动版本主密钥不在当前密钥环中。")
 
-    repository = ProviderCredentialRepository(settings.app_database_path)
+    repositories = create_repositories(settings)
+    repository = repositories.provider_credential
     cipher = CredentialCipher(
         keyring=keyring,
         active_key_version=target_version,
     )
-    records = repository.list_by_key_version(source_version)
     migrated = 0
 
-    for record in records:
-        if record.encrypted_secret is None or record.encryption_key_version is None:
-            continue
+    try:
+        records = repository.list_by_key_version(source_version)
+        for record in records:
+            if record.encrypted_secret is None or record.encryption_key_version is None:
+                continue
 
-        secret = cipher.decrypt(
-            ciphertext=record.encrypted_secret,
-            key_version=record.encryption_key_version,
-            credential_id=record.id,
-            user_id=record.user_id,
-            provider=record.provider,
-        )
-        encrypted = cipher.encrypt(
-            secret=secret,
-            credential_id=record.id,
-            user_id=record.user_id,
-            provider=record.provider,
-        )
+            secret = cipher.decrypt(
+                ciphertext=record.encrypted_secret,
+                key_version=record.encryption_key_version,
+                credential_id=record.id,
+                user_id=record.user_id,
+                provider=record.provider,
+            )
+            encrypted = cipher.encrypt(
+                secret=secret,
+                credential_id=record.id,
+                user_id=record.user_id,
+                provider=record.provider,
+            )
 
-        if repository.replace_encrypted_secret(
-            credential_id=record.id,
-            encrypted_secret=encrypted.ciphertext,
-            encryption_key_version=encrypted.key_version,
-        ):
-            migrated += 1
+            if repository.replace_encrypted_secret(
+                credential_id=record.id,
+                encrypted_secret=encrypted.ciphertext,
+                encryption_key_version=encrypted.key_version,
+            ):
+                migrated += 1
+    finally:
+        if repositories.database is not None:
+            repositories.database.close()
 
     return migrated
 

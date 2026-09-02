@@ -45,7 +45,6 @@ def production_settings() -> Settings:
         checkpoint_database_url=_required("CHECKPOINT_DATABASE_URL"),
         redis_url=_required("REDIS_URL"),
         celery_broker_url=_required("CELERY_BROKER_URL"),
-        celery_result_backend=_required("CELERY_RESULT_BACKEND"),
         object_storage_endpoint_url=_required("OBJECT_STORAGE_ENDPOINT_URL"),
         object_storage_access_key=_required("OBJECT_STORAGE_ACCESS_KEY"),
         object_storage_secret_key=_required("OBJECT_STORAGE_SECRET_KEY"),

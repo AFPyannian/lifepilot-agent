@@ -102,7 +102,6 @@ $env:DATABASE_URL = "postgresql+psycopg://lifepilot:<密码>@127.0.0.1:5432/life
 $env:CHECKPOINT_DATABASE_URL = "postgresql://lifepilot:<密码>@127.0.0.1:5432/lifepilot"
 $env:REDIS_URL = "redis://:<密码>@127.0.0.1:6379/0"
 $env:CELERY_BROKER_URL = "redis://:<密码>@127.0.0.1:6379/1"
-$env:CELERY_RESULT_BACKEND = "redis://:<密码>@127.0.0.1:6379/2"
 $env:OBJECT_STORAGE_ENDPOINT_URL = "http://127.0.0.1:9000"
 $env:OBJECT_STORAGE_ACCESS_KEY = "<MINIO_ROOT_USER>"
 $env:OBJECT_STORAGE_SECRET_KEY = "<MINIO_ROOT_PASSWORD>"

@@ -2,24 +2,11 @@
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-
-@dataclass(frozen=True)
-class AuditEvent:
-    """表示后台可查询的一条脱敏审计事件。"""
-
-    id: str
-    request_id: str
-    user_id: str | None
-    action: str
-    resource_type: str
-    resource_id: str | None
-    outcome: str
-    created_at: datetime
+from app.domain.models import AuditEvent
 
 
 class AuditRepository:

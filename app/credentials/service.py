@@ -14,9 +14,7 @@ from app.credentials.errors import (
     CredentialValidationError,
 )
 from app.credentials.models import ProviderCredentialMetadata, ResolvedCredential
-from app.repositories.provider_credential_repository import (
-    ProviderCredentialRepository,
-)
+from app.repositories.protocols import ProviderCredentialRepositoryProtocol
 
 logger = logging.getLogger("lifepilot.credentials")
 
@@ -35,7 +33,7 @@ class ProviderCredentialService:
     def __init__(
         self,
         *,
-        repository: ProviderCredentialRepository,
+        repository: ProviderCredentialRepositoryProtocol,
         cipher: CredentialCipher | None,
         validator: CredentialValidator,
     ) -> None:

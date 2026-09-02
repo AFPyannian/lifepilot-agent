@@ -6,7 +6,8 @@ from uuid import uuid4
 
 from app.auth.passwords import hash_password
 from app.config import get_settings
-from app.repositories.auth_repository import AuthRepository
+from app.infrastructure import create_repositories
+from app.repositories.protocols import AuthRepositoryProtocol
 
 
 def _read_new_password() -> str:
@@ -18,7 +19,7 @@ def _read_new_password() -> str:
 
 
 def _create_user(
-    repository: AuthRepository,
+    repository: AuthRepositoryProtocol,
     username: str,
     role: str,
 ) -> None:
@@ -32,7 +33,7 @@ def _create_user(
 
 
 def _set_status(
-    repository: AuthRepository,
+    repository: AuthRepositoryProtocol,
     username: str,
     status: str,
 ) -> None:
@@ -45,7 +46,7 @@ def _set_status(
 
 
 def _reset_password(
-    repository: AuthRepository,
+    repository: AuthRepositoryProtocol,
     username: str,
 ) -> None:
     user = repository.get_user_by_username(username)
@@ -61,7 +62,7 @@ def _reset_password(
 
 def main() -> None:
     """解析管理员命令并更新账号数据库。"""
-    parser = argparse.ArgumentParser(description="管理 LifePilot 本地用户")
+    parser = argparse.ArgumentParser(description="管理 LifePilot 用户")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     create_parser = subparsers.add_parser("create")
@@ -84,7 +85,8 @@ def main() -> None:
     reset_parser.add_argument("--username", required=True)
 
     args = parser.parse_args()
-    repository = AuthRepository(get_settings().app_database_path)
+    repositories = create_repositories(get_settings())
+    repository = repositories.auth
 
     try:
         if args.command == "create":
@@ -95,6 +97,9 @@ def main() -> None:
             _reset_password(repository, args.username)
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
+    finally:
+        if repositories.database is not None:
+            repositories.database.close()
 
 
 if __name__ == "__main__":

@@ -154,11 +154,11 @@ python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
 | --- | --- |
 | `DATABASE_URL` | SQLAlchemy PostgreSQL 业务库连接串 |
 | `CHECKPOINT_DATABASE_URL` | LangGraph PostgresSaver 连接串 |
-| `REDIS_URL` | Redis 限流、Celery Broker/结果后端连接地址 |
+| `REDIS_URL` | Redis 共享限流连接地址 |
 | `OBJECT_STORAGE_ENDPOINT_URL` | S3 兼容端点；AWS S3 可留空 |
 | `OBJECT_STORAGE_BUCKET` | 私有知识文件 Bucket |
 | `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY` | 对象存储凭据 |
-| `CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` | Celery Broker 和任务结果地址 |
+| `CELERY_BROKER_URL` | Celery Broker 地址；任务状态由 PostgreSQL 文档记录提供 |
 | `EMBEDDING_DIMENSION` | 当前迁移固定为 `512` |
 | `THREAD_LOCK_WAIT_SECONDS` | 同一用户会话锁的最长等待秒数 |
 

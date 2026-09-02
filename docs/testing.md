@@ -33,7 +33,9 @@ python -m pip install -r requirements-dev.txt
 
 ### 3.1 Repository 测试
 
-Repository 测试使用临时 SQLite 数据库，覆盖：
+Repository 测试使用临时 SQLite 数据库验证完整行为，并通过共享 Protocol
+对 SQLite/PostgreSQL 适配器执行结构契约检查。生产集成测试进一步验证
+PostgreSQL 的跨连接事务语义，覆盖：
 
 - CRUD。
 - owner 数据隔离。
@@ -49,6 +51,7 @@ tests/test_note_repository.py
 tests/test_user_memory_repository.py
 tests/test_conversation_repository.py
 tests/test_auth_repository.py
+tests/test_repository_factory.py
 ```
 
 ### 3.2 Tool 测试

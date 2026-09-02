@@ -20,7 +20,7 @@ from app.auth.passwords import (
     password_needs_rehash,
     verify_password,
 )
-from app.repositories.auth_repository import AuthRepository
+from app.repositories.protocols import AuthRepositoryProtocol
 
 
 class InvalidCredentialsError(RuntimeError):
@@ -32,7 +32,7 @@ class AuthService:
 
     def __init__(
         self,
-        repository: AuthRepository,
+        repository: AuthRepositoryProtocol,
         session_ttl_hours: int = 168,
         touch_interval_seconds: int = 300,
         registration_mode: RegistrationMode = "closed",

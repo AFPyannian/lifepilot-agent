@@ -4,14 +4,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from app.repositories.usage_repository import UsageRepository
+from app.repositories.protocols import UsageRepositoryProtocol
 from app.usage.models import ModelInvocationContext, UsageEvent
 
 
 class UsageTracker:
     """将模型响应中的可选 token 元数据写入事件仓储。"""
 
-    def __init__(self, repository: UsageRepository) -> None:
+    def __init__(self, repository: UsageRepositoryProtocol) -> None:
         self._repository = repository
 
     def start(self, *, context: ModelInvocationContext, model: str) -> UsageEvent:

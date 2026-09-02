@@ -2,9 +2,10 @@
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from app.domain.models import UserMemory, UserProfile
 
 """
 跨会话的长期记忆
@@ -13,30 +14,6 @@ from pathlib import Path
 3. 一般架构为: 对话 —— 提取值得记忆的信息 —— 存储 —— 检索 —— 注入当前上下文
 4. 记忆内容大致包括：用户资料(偏好、习惯、背景等)、事件记忆(发生过的事件)、经验记忆(从过往会话中沉淀出的内容)、...
 """
-
-
-@dataclass(frozen=True)
-class UserProfile:
-    """表示用户的结构化资料。"""
-
-    owner_id: str
-    display_name: str | None
-    occupation: str | None
-    current_goal: str | None
-    response_style: str | None
-    updated_at: str
-
-
-@dataclass(frozen=True)
-class UserMemory:
-    """表示一条用户长期记忆。"""
-
-    id: int
-    owner_id: str
-    category: str
-    content: str
-    created_at: str
-    updated_at: str
 
 
 class UserMemoryRepository:

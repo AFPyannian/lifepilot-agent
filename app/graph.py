@@ -23,6 +23,11 @@ from app.knowledge import KnowledgeBaseService, create_knowledge_base_service
 from app.memory_context import build_user_memory_context
 from app.model_gateway import ModelGateway, StaticModelGateway
 from app.repositories.note_repository import NoteRepository
+from app.repositories.protocols import (
+    NoteRepositoryProtocol,
+    TodoRepositoryProtocol,
+    UserMemoryRepositoryProtocol,
+)
 from app.repositories.todo_repository import TodoRepository
 from app.repositories.user_memory_repository import UserMemoryRepository
 from app.tools import (
@@ -200,9 +205,9 @@ def build_graph(
     model: ChatModel | None = None,
     model_gateway: ModelGateway | None = None,
     checkpointer: BaseCheckpointSaver[Any] | None = None,
-    todo_repository: TodoRepository | None = None,
-    note_repository: NoteRepository | None = None,
-    memory_repository: UserMemoryRepository | None = None,
+    todo_repository: TodoRepositoryProtocol | None = None,
+    note_repository: NoteRepositoryProtocol | None = None,
+    memory_repository: UserMemoryRepositoryProtocol | None = None,
     knowledge_service: KnowledgeBaseService | None = None,
 ) -> CompiledStateGraph[
     AssistantState,

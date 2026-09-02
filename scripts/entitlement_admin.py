@@ -6,11 +6,11 @@ from datetime import UTC, datetime, timedelta
 from app.access.models import Capability
 from app.access.service import EntitlementService
 from app.config import get_settings
-from app.repositories.auth_repository import AuthRepository
-from app.repositories.entitlement_repository import EntitlementRepository
+from app.infrastructure import create_repositories
+from app.repositories.protocols import AuthRepositoryProtocol
 
 
-def _require_user(repository: AuthRepository, username: str):
+def _require_user(repository: AuthRepositoryProtocol, username: str):
     user = repository.get_user_by_username(username)
     if user is None:
         raise ValueError(f"用户不存在：{username}")
@@ -40,8 +40,9 @@ def main() -> None:
 
     args = parser.parse_args()
     settings = get_settings()
-    auth_repository = AuthRepository(settings.app_database_path)
-    service = EntitlementService(EntitlementRepository(settings.app_database_path))
+    repositories = create_repositories(settings)
+    auth_repository = repositories.auth
+    service = EntitlementService(repositories.entitlement)
 
     try:
         if args.command == "list":
@@ -80,6 +81,9 @@ def main() -> None:
             print(f"授权已撤销：{args.entitlement_id}")
     except (ValueError, RuntimeError) as error:
         parser.error(str(error))
+    finally:
+        if repositories.database is not None:
+            repositories.database.close()
 
 
 if __name__ == "__main__":

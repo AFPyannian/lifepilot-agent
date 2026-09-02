@@ -6,12 +6,12 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 
 from app.api.schemas import UsageEventResponse, UsageSummaryResponse
 from app.api.security import CurrentUser
-from app.repositories.usage_repository import UsageRepository
+from app.repositories.protocols import UsageRepositoryProtocol
 
 router = APIRouter()
 
 
-def _get_repository(request: Request) -> UsageRepository:
+def _get_repository(request: Request) -> UsageRepositoryProtocol:
     repository = getattr(request.app.state, "usage_repository", None)
     if repository is None:
         raise HTTPException(

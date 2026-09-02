@@ -6,8 +6,10 @@ from app.access.errors import AccessDeniedError
 from app.access.models import AccessDecision, Capability
 from app.config import Settings
 from app.credentials.service import ProviderCredentialService
-from app.repositories.auth_repository import AuthRepository
-from app.repositories.entitlement_repository import EntitlementRepository
+from app.repositories.protocols import (
+    AuthRepositoryProtocol,
+    EntitlementRepositoryProtocol,
+)
 
 
 class AccessPolicyProtocol(Protocol):
@@ -25,8 +27,8 @@ class AccessPolicy:
         self,
         *,
         settings: Settings,
-        auth_repository: AuthRepository,
-        entitlement_repository: EntitlementRepository,
+        auth_repository: AuthRepositoryProtocol,
+        entitlement_repository: EntitlementRepositoryProtocol,
         credential_service: ProviderCredentialService,
     ) -> None:
         self._settings = settings

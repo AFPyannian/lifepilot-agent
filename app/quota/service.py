@@ -1,29 +1,10 @@
 """执行用户模型配额预占和 Token 结算。"""
 
 from datetime import UTC, date, datetime
-from typing import Protocol
 
 from app.exceptions import QuotaExceededError
 from app.quota.models import QuotaStatus, UserQuota
-
-
-class QuotaRepositoryProtocol(Protocol):
-    """描述本地和 PostgreSQL 配额仓储的共同接口。"""
-
-    def get_status(self, user_id: str, period_start: date) -> QuotaStatus: ...
-
-    def set_quota(
-        self,
-        *,
-        user_id: str,
-        monthly_request_limit: int | None,
-        monthly_token_limit: int | None,
-        updated_by: str | None,
-    ) -> UserQuota: ...
-
-    def reserve_model_request(self, user_id: str, period_start: date) -> bool: ...
-
-    def add_tokens(self, user_id: str, period_start: date, tokens: int) -> None: ...
+from app.repositories.protocols import QuotaRepositoryProtocol
 
 
 class QuotaService:

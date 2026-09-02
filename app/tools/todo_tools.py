@@ -5,12 +5,10 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.types import interrupt
 
 from app.identity import user_id_from_config
-from app.repositories.todo_repository import (
-    TodoRepository,
-)
+from app.repositories.protocols import TodoRepositoryProtocol
 
 
-def create_todo_tools(repository: TodoRepository) -> list[BaseTool]:
+def create_todo_tools(repository: TodoRepositoryProtocol) -> list[BaseTool]:
     """创建从可信运行上下文读取用户身份的待办工具。"""
 
     @tool

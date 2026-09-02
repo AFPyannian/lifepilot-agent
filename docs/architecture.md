@@ -2,7 +2,7 @@
 
 ## 1. 设计目标
 
-LifePilot Agent 面向一台可信本地主机上的多个账号，目标是在保持部署简单的同时，展示一个可测试、可恢复、具备明确身份与数据边界的 Agent 应用。系统采用模块化单体架构：Web UI、HTTP API、Agent 编排、工具和数据访问层位于同一仓库，但通过接口和依赖注入保持职责分离。
+LifePilot Agent 同时面向可信本地主机上的快速体验与多实例生产部署。目标是在保留低门槛 local profile 的同时，提供可测试、可恢复、具备明确身份与数据边界的 production profile。系统采用模块化单体架构：Web UI、HTTP API、Agent 编排、工具和数据访问层位于同一仓库，但通过协议、适配器和依赖注入保持职责分离。
 
 ## 2. 总体架构
 
@@ -34,9 +34,11 @@ flowchart LR
         TOOLS[Todo / Note / Memory / Knowledge Tools]
         REPOS[Repositories]
         KB[Knowledge Service]
-        DB[(SQLite)]
-        CP[(Checkpoint DB)]
-        VECTOR[(Chroma)]
+        DB[(SQLite / PostgreSQL)]
+        CP[(SqliteSaver / PostgresSaver)]
+        VECTOR[(Chroma / pgvector)]
+        OBJECT[(Local Files / S3)]
+        WORKER[Inline / Celery]
         EMB[Local Embedding]
     end
 
@@ -52,6 +54,8 @@ flowchart LR
     TOOLNODE --> TOOLS
     TOOLS --> REPOS --> DB
     TOOLS --> KB --> VECTOR
+    KB --> OBJECT
+    KB --> WORKER
     KB --> EMB
     GRAPH --> CP
 ```
@@ -70,11 +74,12 @@ flowchart LR
 
 1. 加载并校验 Settings。
 2. 初始化日志和可选 LangSmith 追踪。
-3. 打开 SQLite Checkpointer。
-4. 初始化账号、Session、审计、会话仓储和知识库服务。
-5. 构建 LangGraph。
-6. 将依赖保存到 `application.state`。
-7. 应用结束时关闭日志和资源。
+3. 由基础设施工厂选择 SQLite 或 PostgreSQL 仓储适配器。
+4. 打开对应的 SqliteSaver 或 PostgresSaver。
+5. 初始化账号、Session、审计、会话仓储和知识库服务。
+6. 构建 LangGraph。
+7. 将依赖保存到 `application.state`。
+8. 应用结束时关闭日志和资源。
 
 API 按职责拆分：
 
@@ -128,10 +133,10 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 
 | 工具组 | 主要能力 | 数据位置 |
 | --- | --- | --- |
-| Todo | 新增、列表、完成、删除 | SQLite 应用数据库 |
-| Note | 新增、列表、详情、搜索、更新、删除 | SQLite 应用数据库 |
-| Memory | 用户资料、长期事实、查询和遗忘 | SQLite 应用数据库 |
-| Knowledge | 导入、检索、列表、删除文档 | 本地文件和 Chroma |
+| Todo | 新增、列表、完成、删除 | SQLite / PostgreSQL |
+| Note | 新增、列表、详情、搜索、更新、删除 | SQLite / PostgreSQL |
+| Memory | 用户资料、长期事实、查询和遗忘 | SQLite / PostgreSQL |
+| Knowledge | 导入、检索、列表、删除文档 | 本地文件 + Chroma / S3 + pgvector |
 
 所有业务数据按认证用户 UUID（数据库字段名为 `owner_id`）隔离。身份由 API 认证依赖写入 LangGraph context 和工具的受信任运行配置，模型可见参数中不存在 `owner_id`，因此模型或客户端不能切换数据作用域。
 
@@ -141,16 +146,10 @@ ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。
 
 | 状态 | 存储 | 作用域 |
 | --- | --- | --- |
-| 账号、Session 和审计事件 | `data/lifepilot.db` | 用户 UUID / Session 摘要 |
-| 一次性注册邀请 | `data/lifepilot.db` | 邀请摘要 / 创建与使用用户 UUID |
-| 用户模型凭据 | `data/lifepilot.db` | 用户 UUID + provider，加密密文与掩码元数据 |
-| 能力授权 | `data/lifepilot.db` | 用户 UUID + capability，可过期、可撤销、可审计来源 |
-| 模型用量事件 | `data/lifepilot.db` | 请求、会话、模式、结果、耗时与可选 Token |
-| LangGraph 消息与执行位置 | `data/checkpoints.db` | 用户 UUID + 公开 thread ID |
-| 会话索引和消息记录 | `data/lifepilot.db` | 用户 UUID + thread ID |
-| 待办、笔记、用户资料和记忆 | `data/lifepilot.db` | 用户 UUID |
-| 知识文档 | `knowledge_base/<用户UUID>/` | 用户 UUID + 文件名 |
-| 向量索引 | `data/chroma/` | 用户 UUID + source |
+| 业务数据 | SQLite `data/lifepilot.db` / PostgreSQL | 用户 UUID 与业务主键 |
+| LangGraph 消息与执行位置 | SQLite `data/checkpoints.db` / PostgresSaver | 用户 UUID + 公开 thread ID |
+| 知识源文件 | `knowledge_base/<用户UUID>/` / S3 | 用户 UUID + 文件名 |
+| 向量索引 | Chroma `data/chroma/` / pgvector | 用户 UUID + source |
 
 Checkpoint 使进程重启后仍能恢复会话状态。对外 thread ID 进入 Checkpointer 前会转换为 `user:<UUID>:thread:<thread ID>`，避免两个用户选择相同 thread ID 时读取彼此状态；会话仓储同时以用户 UUID 和公开 thread ID 查询。
 
@@ -187,11 +186,17 @@ flowchart LR
     FILE[PDF / Markdown / Text] --> LOAD[Document Loader]
     LOAD --> SPLIT[Recursive Text Splitter]
     SPLIT --> EMB[Local BGE Embedding]
-    EMB --> STORE[(Chroma)]
+    EMB --> LOCAL[(Local: Chroma)]
+    EMB --> PROD[(Production: pgvector)]
+    FILE --> OBJECT[(Production: S3)]
+    OBJECT --> WORKER[Celery Worker]
+    WORKER --> LOAD
 
     QUERY[User Query] --> QEMB[Query Embedding]
-    QEMB --> STORE
-    STORE --> DOCS[Top-K Documents]
+    QEMB --> LOCAL
+    QEMB --> PROD
+    LOCAL --> DOCS[Top-K Documents]
+    PROD --> DOCS
     DOCS --> TOOL[Knowledge Tool Result]
     TOOL --> MODEL[DeepSeek Answer]
 ```
