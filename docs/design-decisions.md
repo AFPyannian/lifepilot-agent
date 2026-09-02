@@ -145,39 +145,39 @@ DeepSeek 客户端配置超时和有限重试，但不自动重放整个 Agent �
 
 部分瞬时故障仍会暴露给调用方，需要用户使用相同 thread ID 重新进入或恢复未完成执行。
 
-## 10. 使用不透明 Session 实现本地账号认证
+## 10. 使用不透明 Session 实现账号认证
 
 ### 决策
 
-业务 API 使用用户名和密码登录，签发可撤销的不透明 Bearer Session；健康检查、文档和登录端点保持公开。密码使用 Argon2id，数据库只保存 Session 令牌的 SHA-256 摘要。
+业务 API 使用用户名和密码登录，签发可撤销的不透明 Bearer Session；健康检查、文档、登录、注册状态和邀请码注册端点保持公开。密码使用 Argon2id，数据库只保存 Session 令牌的 SHA-256 摘要。
 
 ### 原因
 
-本地多账号需要区分身份、撤销单个设备、禁用用户并隔离数据。数据库 Session 比自包含 JWT 更便于立即撤销，也不需要引入外部身份服务；FastAPI Security Scheme 仍能在 OpenAPI 中公开认证方式。
+多账号需要区分身份、撤销单个设备、禁用用户并隔离数据。数据库 Session 比自包含 JWT 更便于立即撤销，也不需要引入外部身份服务；FastAPI Security Scheme 仍能在 OpenAPI 中公开认证方式。
 
 ### 代价
 
-Session 查询会为每个认证请求增加一次 SQLite 访问；当前仅对邀请码管理强制区分 `admin` 与 `user`，尚未提供细粒度 RBAC 或 OAuth。Bearer 令牌仍不能替代公网场景中的 HTTPS。
+Session 查询会为每个认证请求增加一次数据库访问；管理员 API 统一区分 `admin` 与 `user`，但尚未提供资源级角色、细粒度 RBAC 或 OAuth。Bearer 令牌仍不能替代公网场景中的 HTTPS。
 
-## 11. 使用进程内滑动窗口限流
+## 11. local 使用进程内限流，production 使用 Redis
 
 ### 决策
 
-登录失败按客户端 IP 与用户名摘要计数；认证后的业务请求按 Session 令牌摘要计数。
+登录和注册失败按客户端 IP 与用户名摘要计数；认证后的业务请求按 Session 令牌摘要计数。local profile 使用进程内滑动窗口，production profile 使用 Redis 原子脚本。
 
 ### 原因
 
-它能为本地单实例服务提供基本的登录防爆破和误用保护，不引入 Redis 等外部依赖，而且计数键不保存用户名或 Session 原文。
+local profile 无需外部依赖即可提供基本防爆破和误用保护；production profile 的 Redis 计数可以跨 API Worker 和实例共享。两种实现的计数键都不保存用户名或 Session 原文。
 
 ### 代价
 
-计数不跨进程共享，重启后清空。因此 README 明确限制为单实例，不建议通过增加多个 Uvicorn Worker 扩展。
+local 计数不跨进程共享且重启后清空，因此 local profile 只适合单实例。production 依赖 Redis 可用性，并需要为 Redis 配置高可用、监控和容量治理。
 
 ## 12. 通过依赖注入保证离线测试
 
 ### 决策
 
-`create_app()` 和 `build_graph()` 接受可选 graph、model、Repository、Checkpointer 和知识库服务。
+`create_app()` 接受可注入的 graph、Repository 和服务；`build_graph()` 接受静态 model 或 ModelGateway、Repository、Checkpointer 和知识库服务。
 
 ### 原因
 
@@ -204,7 +204,7 @@ Session 查询会为每个认证请求增加一次 SQLite 访问；当前仅对�
 
 发布前需要主动运行 Agent 评估，CI 绿色不能单独证明真实模型质量。
 
-## 14. 明确不纳入当前本地多账号版本的范围
+## 14. 明确不纳入当前版本的范围
 
 当前版本不实现：
 
@@ -220,12 +220,14 @@ Session 查询会为每个认证请求增加一次 SQLite 访问；当前仅对�
 
 - 用户可以自行设置密码，管理员不接触用户密码。
 - 不需要立即引入邮件、验证码和机器人治理服务。
-- 邀请消费与用户创建可以在同一个 SQLite 写事务中完成。
+- 邀请消费与用户创建位于同一数据库事务；SQLite 使用写锁，PostgreSQL 使用行锁。
 - 邀请原文只展示一次，数据库只保存摘要。
 
 ### 代价
 
-管理员需要安全传递邀请码；当前进程内注册限流不跨实例共享，因此该模式仍面向本地单实例，不等同于可直接公网开放的注册系统。
+管理员需要安全传递邀请码。local profile 的注册限流不跨实例，production profile
+通过 Redis 共享计数；两种模式都没有邮箱验证、验证码或机器人治理，因此邀请注册
+仍不等同于可直接匿名开放的公网注册系统。
 
 ## 16. 使用信封式思路保护用户模型凭据
 
@@ -263,7 +265,8 @@ Session 查询会为每个认证请求增加一次 SQLite 访问；当前仅对�
 
 ### 代价
 
-本地管理员需要显式管理新用户的平台能力，并处理授权过期。当前只提供 CLI，没有实现完整授权后台。
+管理员需要显式管理新用户的平台能力并处理授权过期。当前提供管理员 API 和本地
+CLI，但 Streamlit 尚未提供能力授权的管理界面，也没有细粒度角色委派。
 
 ## 18. 用不可变调用事件记录用量，不把用量当账单
 
@@ -327,7 +330,7 @@ PDF 解析和向量化不应占用 API 请求；源文件和向量索引具有�
 
 ### 决策
 
-登录失败和 API 滑动窗口限流使用 Redis 原子脚本，Celery 使用 Redis Broker；账号、授权、用量、知识任务状态和元数据仍以 PostgreSQL 为准。Celery 不保存重复的任务结果。
+登录、注册失败和 API 滑动窗口限流使用 Redis 原子脚本，Celery 使用 Redis Broker；账号、授权、用量、知识任务状态和元数据仍以 PostgreSQL 为准。Celery 不保存任务结果。
 
 ### 原因
 

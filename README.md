@@ -18,10 +18,11 @@
 | 长期记忆 | SQLite 或 PostgreSQL 按登录用户 UUID 隔离资料与记忆 |
 | RAG | 本地 Chroma，或 S3 + Celery + pgvector 生产知识链路 |
 | API | FastAPI、SSE 流式响应、会话及知识库管理接口 |
-| Web 界面 | Streamlit 聊天、会话、知识库和审批交互 |
+| Web 界面 | Streamlit 登录、聊天、会话、知识库、模型设置、用量和审批交互 |
 | 安全 | Bearer Session、登录防爆破、审计日志、限流和安全响应头 |
 | 能力授权 | AccessPolicy 集中判断账号、BYOK 与平台模型权限 |
 | 模型用量 | 按真实模型调用记录模式、结果、耗时与 Token，不保存消息正文 |
+| 配额治理 | 按用户设置月请求与 Token 上限，生产模式跨实例原子预占 |
 | 生产并发 | Redis 共享限流、PostgreSQL 会话锁、后台向量化和运营后台 |
 | 可观测性 | 结构化日志、Request ID、可选 LangSmith 追踪 |
 | 工程质量 | pytest、branch coverage、Ruff、mypy、pre-commit 和 CI |
@@ -116,6 +117,7 @@ lifepilot-agent/
 │   ├── infrastructure/      # local/production 仓储装配工厂
 │   ├── knowledge/           # 文档加载、向量存储和知识库服务
 │   ├── repositories/        # 共享协议及 SQLite/PostgreSQL 适配器
+│   ├── quota/               # 月请求与 Token 配额服务
 │   ├── storage/             # S3 兼容对象存储
 │   ├── tasks/               # Celery 后台任务
 │   ├── tools/               # Agent 工具
@@ -157,7 +159,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 3. 下载本地 Embedding 模型
+### 3. 可选：下载本地 Embedding 模型
 
 知识库默认使用 `BAAI/bge-small-zh-v1.5`，保存到不会提交 Git 的 `models/` 目录：
 
@@ -165,7 +167,8 @@ python -m pip install -r requirements.txt
 python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='BAAI/bge-small-zh-v1.5', local_dir='models/bge-small-zh-v1.5')"
 ```
 
-如果暂时不使用知识库，也建议准备该模型，因为后端启动时会初始化知识库服务。
+后端可以在没有该模型时启动；只有导入/检索知识文档或运行 RAG 评估时才会加载
+Embedding 和向量存储。生产 Worker 处理知识文档前也必须挂载该模型。
 
 ### 4. 创建本地配置
 
@@ -173,7 +176,7 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download(repo
 Copy-Item .env.example .env
 ```
 
-至少填写 DeepSeek Key：
+默认的 `PLATFORM` 模式需要填写 DeepSeek Key：
 
 ```env
 DEEPSEEK_API_KEY=your-deepseek-api-key
@@ -194,6 +197,13 @@ PROVIDER_CREDENTIAL_ACTIVE_KEY_VERSION=v1
 
 ```powershell
 python -m scripts.user_admin create --username admin --role admin
+```
+
+命令会输出新账号的 UUID。新创建的账号不会自动获得平台模型权限；如果使用默认
+平台 Key，可让首个管理员给自己授权：
+
+```powershell
+python -m scripts.entitlement_admin grant --username admin --granted-by admin --capability model.platform
 ```
 
 项目默认关闭注册。管理员账号创建完成后，可在 `.env` 中启用一次性邀请码注册：
@@ -230,7 +240,7 @@ Streamlit 登录后只在当前浏览器 Session 中保存访问令牌。完整�
 python -m scripts.migrate_local_user --username admin --confirm
 ```
 
-单机开发默认继续使用 SQLite、Chroma 和本地文件。切换 `INFRASTRUCTURE_MODE=production` 前，按[阶段四生产部署](docs/production-deployment.md)准备 PostgreSQL、Redis、对象存储和 Celery Worker，并执行 Alembic 与 Checkpoint 初始化。
+单机开发默认继续使用 SQLite、Chroma 和本地文件。切换 `INFRASTRUCTURE_MODE=production` 前，按[生产部署](docs/production-deployment.md)准备 PostgreSQL、Redis、对象存储和 Celery Worker，并执行 Alembic 与 Checkpoint 初始化。
 
 ### 5. 启动后端
 
@@ -253,6 +263,10 @@ streamlit run frontend/streamlit_app.py
 ```
 
 ### 7. 可选：使用命令行界面
+
+CLI 是仅用于本地 profile 的开发入口，直接使用 SQLite 和平台模型，不提供完整的
+登录、BYOK 或删除审批界面。先把 `LOCAL_CLI_OWNER_ID` 设置为一个启用账号的 UUID，
+并确保该账号具有 `model.platform` 授权；日常多账号使用应选择 Streamlit。
 
 ```powershell
 python -m app.main
@@ -334,12 +348,12 @@ python -m evaluations.run_agent_eval
 python -m evaluations.run_agent_eval --case add_todo
 ```
 
-评估报告写入被 Git 忽略的 `evaluation_reports/`。
+Agent 评估报告写入被 Git 忽略的 `evaluation_reports/`；RAG 评估直接输出 Hit@1。
 
 ## API 安全边界
 
-- `/api/v1/health`、`/api/v1/ready` 和 `/docs` 保持公开。
-- `/api/v1/auth/login` 公开，其余账号与业务接口要求 `Authorization: Bearer <session-token>`。
+- `/api/v1/health`、`/api/v1/ready`、`/docs` 和 `/openapi.json` 保持公开。
+- `/api/v1/auth/login`、`GET /api/v1/auth/registration` 和邀请码注册端点公开；其余账号与业务接口要求 `Authorization: Bearer <session-token>`。
 - 密码使用 Argon2id 哈希；数据库只保存 Session 令牌的 SHA-256 摘要。
 - 账号禁用、退出全部设备和修改密码会撤销相应 Session。
 - 登录失败按客户端 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
@@ -358,7 +372,7 @@ python -m evaluations.run_agent_eval --case add_todo
 LifePilot Agent 同时提供单机开发模式和生产基础设施模式。当前版本仍有意保持以下边界：
 
 - 本地模式使用 SQLite 和 Chroma，仅适合单实例；生产模式才支持多实例共享状态。
-- 不提供公开匿名注册、OAuth 或细粒度 RBAC；管理员后台覆盖账号、邀请、授权、审计和用量。
+- 不提供匿名开放注册、OAuth 或细粒度 RBAC；Streamlit 管理账号、邀请、配额、审计和用量，能力授权通过管理员 API 或本地 CLI 管理。
 - 当前阶段不实现钱包、余额、账本、支付订单或扣费，平台权限只由授权记录表达。
 - 生产部署需要自行运维 PostgreSQL、Redis、对象存储、Celery Worker、HTTPS 和备份。
 - Session 是数据库中的不透明令牌；公网部署仍必须使用 HTTPS。
@@ -369,7 +383,7 @@ LifePilot Agent 同时提供单机开发模式和生产基础设施模式。当�
 
 ## 版本
 
-最近发布版本：`v1.0.0`；`main` 已进入多账号版本开发。
+最近发布版本：`v1.0.0`。当前 `main` 还包含尚未发布的多账号、BYOK、配额治理和 production profile 变更，具体范围以 [Changelog](CHANGELOG.md) 的 `Unreleased` 为准。
 
 版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 

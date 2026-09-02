@@ -1,6 +1,6 @@
-# 阶段四生产部署
+# 生产部署
 
-生产模式使用 PostgreSQL/pgvector 保存业务数据和向量，使用独立的 LangGraph PostgresSaver 表保存 Checkpoint，Redis 提供共享限流、Celery Broker 和任务结果，MinIO 保存知识源文件。SQLite、Chroma 和本地知识目录只用于单机开发模式。
+生产模式使用 PostgreSQL/pgvector 保存业务数据和向量，使用独立的 LangGraph PostgresSaver 表保存 Checkpoint，Redis 提供共享限流和 Celery Broker，MinIO 保存知识源文件。Celery 配置为忽略任务结果，知识文档状态由 PostgreSQL 记录。SQLite、Chroma 和本地知识目录只用于单机开发模式。
 
 ## 容器拓扑
 
@@ -35,12 +35,6 @@
 .\scripts\configure_production_env.ps1
 ```
 
-可使用以下脚本只为缺失的基础设施变量生成密码；脚本不会覆盖已有值，也不会输出密码：
-
-```powershell
-.\scripts\configure_production_env.ps1
-```
-
 静态检查编排文件不会下载镜像：
 
 ```powershell
@@ -54,6 +48,24 @@ docker compose --env-file .env -f compose.production.yml config --quiet
 ```powershell
 docker compose --env-file .env -f compose.production.yml up -d --build
 docker compose --env-file .env -f compose.production.yml ps
+```
+
+首次初始化后，在 API 容器内创建管理员。命令会交互式读取密码并输出用户 UUID：
+
+```powershell
+docker compose --env-file .env -f compose.production.yml exec api `
+  python -m scripts.user_admin create --username admin --role admin
+```
+
+新账号不会自动获得平台模型权限。使用服务端 DeepSeek Key 时，再让管理员给自己
+授予 `model.platform`；BYOK-only 部署可以跳过这一步：
+
+```powershell
+docker compose --env-file .env -f compose.production.yml exec api `
+  python -m scripts.entitlement_admin grant `
+    --username admin `
+    --granted-by admin `
+    --capability model.platform
 ```
 
 检查应用和依赖：
@@ -77,7 +89,9 @@ docker compose --env-file .env -f compose.production.yml down
 ## 旧数据迁移
 
 1. 停止旧实例写入，并备份 `data/lifepilot.db`、`data/checkpoints.db` 和 `knowledge_base`。
-2. 保持新容器运行，进入 API 容器执行可重复迁移；知识库会重新解析和向量化，不复制 Chroma 文件：
+2. 默认生产编排不会挂载本地 `data` 或 `knowledge_base`。先把旧数据目录以只读卷
+   挂载进 API 容器或复制到一次性迁移容器，再执行可重复迁移；知识库会重新解析和
+   向量化，不复制 Chroma 文件：
 
    ```powershell
    docker compose --env-file .env -f compose.production.yml exec api `
@@ -88,7 +102,8 @@ docker compose --env-file .env -f compose.production.yml down
        --knowledge-directory knowledge_base
    ```
 
-   如需从宿主机迁移，必须先把旧数据目录以只读卷挂载进容器；默认生产编排不会挂载本地 `data` 或 `knowledge_base`，防止误用开发数据。
+   示例中的路径必须替换为容器内实际挂载路径。迁移完成后移除旧数据挂载，防止
+   生产服务误用开发文件。
 
 3. 核对各业务表行数、用户登录、会话读取、知识检索、后台任务和管理员用量/配额页面后再切换流量。
 
@@ -108,10 +123,10 @@ $env:OBJECT_STORAGE_SECRET_KEY = "<MINIO_ROOT_PASSWORD>"
 python -m pytest tests/test_phase4_integration.py -v
 ```
 
-测试会创建带随机标识的临时用户、Redis Key 和 MinIO 对象，并在结束时清理持久对象。
+测试会创建带随机标识的临时用户、Redis Key 和 MinIO 对象；用户和对象会在结束时清理，Redis Key 会按测试窗口自动过期。
 
 ## 备份与回滚
 
-- PostgreSQL、Redis 和 MinIO 数据目录应分别配置备份；MinIO Bucket 必须保持私有。
+- PostgreSQL 与 MinIO 保存权威业务数据，必须分别配置备份，MinIO Bucket 必须保持私有。Redis 只保存限流、Broker 等短期协调状态，应配置持久化和高可用，但不能作为业务恢复依据。
 - 切换失败时先停止新实例写入，再恢复旧 SQLite 文件和旧环境变量。生产切换后新增的数据不会自动反向同步到 SQLite。
 - 月请求配额在模型调用前原子预占；失败调用也计入请求数。Token 只能在供应商成功响应后结算，因此一次响应可能略微越过 Token 上限，后续调用会被拒绝。

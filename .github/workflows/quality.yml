@@ -24,7 +24,6 @@ jobs:
 
     env:
       DEEPSEEK_API_KEY: test-deepseek-api-key
-      API_AUTH_ENABLED: "false"
       LANGSMITH_TRACING: "false"
       APP_ENVIRONMENT: test
 

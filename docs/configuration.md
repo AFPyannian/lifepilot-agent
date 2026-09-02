@@ -12,13 +12,13 @@ Copy-Item .env.example .env
 
 `.env` 包含真实密钥和本地路径，已被 `.gitignore` 排除，不得提交。`.env.example` 只保存安全的默认值和空占位符。
 
-## 2. 最小可运行配置
+## 2. 默认平台模型配置
 
 ```env
 DEEPSEEK_API_KEY=your-deepseek-api-key
 ```
 
-知识库还要求本地 Embedding 模型存在于默认路径：
+知识库导入、检索和 RAG 评估还要求本地 Embedding 模型存在于默认路径；不使用知识库时，后端可以在没有该模型的情况下启动：
 
 ```text
 models/bge-small-zh-v1.5
@@ -137,6 +137,8 @@ python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
 以下端点保持公开：
 
 - `/api/v1/auth/login`
+- `GET /api/v1/auth/registration`
+- `POST /api/v1/auth/register`（仅邀请模式可成功注册）
 - `/api/v1/health`
 - `/api/v1/ready`
 - `/docs`
@@ -148,21 +150,36 @@ python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
 
 ## 4.1 生产基础设施
 
-`INFRASTRUCTURE_MODE=local` 保持 SQLite、Chroma、本地知识文件和进程内限流。切换为 `production` 后，下列共享组件配置全部必填：
+`INFRASTRUCTURE_MODE=local` 保持 SQLite、Chroma、本地知识文件和进程内限流。切换为 `production` 后，连接类配置必须显式提供：
 
-| 环境变量 | 说明 |
-| --- | --- |
-| `DATABASE_URL` | SQLAlchemy PostgreSQL 业务库连接串 |
-| `CHECKPOINT_DATABASE_URL` | LangGraph PostgresSaver 连接串 |
-| `REDIS_URL` | Redis 共享限流连接地址 |
-| `OBJECT_STORAGE_ENDPOINT_URL` | S3 兼容端点；AWS S3 可留空 |
-| `OBJECT_STORAGE_BUCKET` | 私有知识文件 Bucket |
-| `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY` | 对象存储凭据 |
-| `CELERY_BROKER_URL` | Celery Broker 地址；任务状态由 PostgreSQL 文档记录提供 |
-| `EMBEDDING_DIMENSION` | 当前迁移固定为 `512` |
-| `THREAD_LOCK_WAIT_SECONDS` | 同一用户会话锁的最长等待秒数 |
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `INFRASTRUCTURE_MODE` | `local` | `local` 使用单机存储；`production` 使用共享基础设施 |
+| `DATABASE_URL` | 空 | SQLAlchemy PostgreSQL 业务库连接串；生产模式必填 |
+| `CHECKPOINT_DATABASE_URL` | 空 | LangGraph PostgresSaver 连接串；生产模式必填 |
+| `DATABASE_POOL_SIZE` | `10` | SQLAlchemy 连接池常驻连接数 |
+| `DATABASE_MAX_OVERFLOW` | `20` | 连接池允许临时增加的连接数 |
+| `DATABASE_POOL_RECYCLE_SECONDS` | `1800` | 数据库连接回收秒数 |
+| `REDIS_URL` | 空 | Redis 共享限流连接地址；生产模式必填 |
+| `REDIS_KEY_PREFIX` | `lifepilot` | Redis 限流键前缀 |
+| `OBJECT_STORAGE_ENDPOINT_URL` | 空 | S3 兼容端点；AWS S3 可留空 |
+| `OBJECT_STORAGE_REGION` | `us-east-1` | 对象存储区域 |
+| `OBJECT_STORAGE_BUCKET` | `lifepilot-knowledge` | 私有知识文件 Bucket |
+| `OBJECT_STORAGE_ACCESS_KEY` | 空 | 对象存储访问 Key；生产模式必填 |
+| `OBJECT_STORAGE_SECRET_KEY` | 空 | 对象存储 Secret；生产模式必填 |
+| `OBJECT_STORAGE_SECURE` | `true` | 是否使用 HTTPS 访问对象存储 |
+| `OBJECT_STORAGE_SSE` | `AES256` | 服务端加密模式；可选 `none` 或 `AES256` |
+| `CELERY_BROKER_URL` | 空 | Celery Broker 地址；生产模式必填 |
+| `KNOWLEDGE_WORKER_QUEUE` | `knowledge` | 知识库后台任务队列名；默认 Compose Worker 固定消费 `knowledge`，使用自定义值时需同步修改 Worker 命令 |
+| `KNOWLEDGE_TASK_MAX_RETRIES` | `3` | 知识库后台任务最大重试次数 |
+| `EMBEDDING_DIMENSION` | `512` | pgvector 向量维度；必须与数据库迁移和模型一致 |
+| `THREAD_LOCK_WAIT_SECONDS` | `5` | 同一用户会话锁的最长等待秒数 |
 
-数据库、Redis 和对象存储连接会在生产应用启动时检查。完整初始化、迁移、Worker 启动和回滚顺序见[生产部署](production-deployment.md)。
+使用 `compose.production.yml` 时还必须提供 `POSTGRES_PASSWORD`、
+`REDIS_PASSWORD`、`MINIO_ROOT_USER` 和 `MINIO_ROOT_PASSWORD`。这些变量由
+Compose 用于启动依赖服务并生成上表中的连接配置，不是 `Settings` 的直接字段。
+
+业务数据库、Checkpoint 数据库、Redis 和对象存储会通过生产就绪检查持续探测。完整初始化、迁移、Worker 启动和回滚顺序见[生产部署](production-deployment.md)。
 
 ## 5. Agent 运行限制
 
@@ -180,6 +197,9 @@ python -m scripts.entitlement_admin revoke --entitlement-id <授权ID>
 | `DEFAULT_THREAD_ID` | `main` | CLI 默认会话 ID |
 
 Web/API 的用户 UUID 只来自服务端认证结果，不接受请求体或模型参数指定身份。Repository、Checkpoint、知识文件和 Chroma 元数据都使用该 UUID 隔离数据；`LOCAL_CLI_OWNER_ID` 不影响 Web/API 用户。
+
+CLI 只面向 local profile，`LOCAL_CLI_OWNER_ID` 必须改为一个启用账号的真实 UUID，
+并为该账号授予 `model.platform`；CLI 固定使用平台模式，不提供 BYOK 和完整删除审批界面。
 
 从 `v1.0.0` 升级时，先停止后端并创建目标账号，再执行以下命令。脚本会在 `data/migration-backups/<UTC时间>/` 中创建完整备份，然后迁移原 `local-user` 的数据库、Checkpoint、知识文件和向量元数据：
 

@@ -34,14 +34,16 @@ python -m pip install -r requirements-dev.txt
 ### 3.1 Repository 测试
 
 Repository 测试使用临时 SQLite 数据库验证完整行为，并通过共享 Protocol
-对 SQLite/PostgreSQL 适配器执行结构契约检查。生产集成测试进一步验证
-PostgreSQL 的跨连接事务语义，覆盖：
+对 SQLite/PostgreSQL 适配器执行结构契约检查。SQLite 行为测试覆盖：
 
 - CRUD。
 - owner 数据隔离。
 - 排序和搜索。
 - 不存在资源的返回行为。
 - 会话标题、更新时间和消息记录。
+
+显式启用的生产集成测试另外验证 PostgreSQL/pgvector 与 Checkpoint 表、跨连接
+配额原子性、Redis 共享滑动窗口和 MinIO 私有对象往返。
 
 对应文件包括：
 
@@ -287,9 +289,12 @@ python -m evaluations.run_agent_eval --minimum-pass-rate 0.8
 
 该评估会调用真实 DeepSeek 模型，可能产生费用和非确定性结果，因此不属于 GitHub Actions 的必跑任务。
 
+`tests/test_evaluations.py` 使用确定性模型验证评估图装配、可信用户上下文、工具循环
+和报告判定，不访问 DeepSeek；真实模型效果仍由上述命令单独评估。
+
 ## 12. RAG 评估
 
-RAG 评估将 `evaluations/fixtures/` 中的公开样例导入临时 Chroma 数据库，并根据 `evaluations/rag_cases.json` 计算 Hit@1：
+RAG 评估将 `evaluations/fixtures/` 中的公开样例复制到临时的用户隔离目录，导入临时 Chroma 数据库，并根据 `evaluations/rag_cases.json` 计算 Hit@1：
 
 ```powershell
 python -m evaluations.run_rag_eval

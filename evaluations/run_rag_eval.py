@@ -1,6 +1,7 @@
 """运行知识库文档召回评估。"""
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,10 +18,26 @@ FIXTURE_DIRECTORY = PROJECT_ROOT / "evaluations" / "fixtures"
 
 CASES_PATH = PROJECT_ROOT / "evaluations" / "rag_cases.json"
 
+EVALUATION_USER_ID = "rag-evaluation-user"
+
 
 def load_cases() -> list[dict[str, Any]]:
     """读取 RAG 文档召回评估数据集。"""
     return json.loads(CASES_PATH.read_text(encoding="utf-8"))
+
+
+def stage_fixtures(source_directory: Path, owner_id: str) -> list[Path]:
+    """按多用户知识库目录约定复制评估夹具。"""
+    user_directory = source_directory / owner_id
+    user_directory.mkdir(parents=True, exist_ok=True)
+
+    staged_paths: list[Path] = []
+    for fixture_path in sorted(FIXTURE_DIRECTORY.glob("*.md")):
+        staged_path = user_directory / fixture_path.name
+        shutil.copy2(fixture_path, staged_path)
+        staged_paths.append(staged_path)
+
+    return staged_paths
 
 
 def main() -> None:
@@ -29,13 +46,15 @@ def main() -> None:
     results: list[dict[str, Any]] = []
 
     with TemporaryDirectory(prefix="lifepilot-rag-eval-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        source_directory = temporary_root / "knowledge"
         base_settings = get_settings()
 
         eval_settings = base_settings.model_copy(
             update={
                 "app_environment": "test",
-                "knowledge_source_directory": (FIXTURE_DIRECTORY),
-                "chroma_persist_directory": (Path(temporary_directory) / "chroma"),
+                "knowledge_source_directory": source_directory,
+                "chroma_persist_directory": temporary_root / "chroma",
                 "knowledge_retrieval_k": 1,
                 "embedding_device": "cpu",
             }
@@ -44,9 +63,9 @@ def main() -> None:
         service = create_knowledge_base_service(eval_settings)
 
         try:
-            owner_id = "rag-evaluation-user"
+            owner_id = EVALUATION_USER_ID
 
-            for document_path in sorted(FIXTURE_DIRECTORY.glob("*.md")):
+            for document_path in stage_fixtures(source_directory, owner_id):
                 service.ingest(
                     owner_id=owner_id,
                     filename=document_path.name,

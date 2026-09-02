@@ -11,10 +11,13 @@ from typing import Any
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.checkpointing import open_sqlite_checkpointer
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.graph import build_graph
+from app.identity import AgentContext, checkpoint_config
+from app.model import create_model
 from app.observability import configure_observability
 from app.repositories.note_repository import NoteRepository
 from app.repositories.todo_repository import TodoRepository
@@ -25,6 +28,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CASES_PATH = PROJECT_ROOT / "evaluations" / "agent_cases.json"
 
 REPORT_DIRECTORY = PROJECT_ROOT / "evaluation_reports"
+
+EVALUATION_USER_ID = "evaluation-user"
 
 
 def load_cases() -> list[dict[str, Any]]:
@@ -64,14 +69,16 @@ def extract_final_reply(messages: list[Any]) -> str:
     return ""
 
 
-def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
+def evaluate_case(
+    graph: Any,
+    case: dict[str, Any],
+    user_id: str = EVALUATION_USER_ID,
+) -> dict[str, Any]:
     """运行并评价一个 Agent 用例。"""
     thread_id = f"eval-{case['id']}-{uuid4().hex}"
 
-    config = {
-        "configurable": {
-            "thread_id": thread_id,
-        },
+    config: dict[str, Any] = {
+        **checkpoint_config(user_id, thread_id),
         "run_name": f"eval_{case['id']}",
         "tags": [
             "lifepilot",
@@ -96,6 +103,11 @@ def evaluate_case(graph: Any, case: dict[str, Any]) -> dict[str, Any]:
                 ]
             },
             config=config,
+            context=AgentContext(
+                user_id=user_id,
+                request_id=f"evaluation:{case['id']}",
+                public_thread_id=thread_id,
+            ),
         )
 
         latency_seconds = perf_counter() - started_at
@@ -218,6 +230,21 @@ def write_report(results: list[dict[str, Any]]) -> Path:
     return report_path
 
 
+def build_evaluation_graph(
+    settings: Settings,
+    checkpointer: BaseCheckpointSaver[Any],
+) -> Any:
+    """使用隔离仓储和静态模型网关构建评估图。"""
+    return build_graph(
+        settings=settings,
+        model=create_model(settings),
+        checkpointer=checkpointer,
+        todo_repository=TodoRepository(settings.app_database_path),
+        note_repository=NoteRepository(settings.app_database_path),
+        memory_repository=UserMemoryRepository(settings.app_database_path),
+    )
+
+
 def main() -> None:
     """在隔离数据库中运行 Agent 评估并应用通过率门槛。"""
     parser = argparse.ArgumentParser(
@@ -255,7 +282,7 @@ def main() -> None:
         eval_settings = base_settings.model_copy(
             update={
                 "app_environment": "test",
-                "owner_id": "evaluation-user",
+                "local_cli_owner_id": EVALUATION_USER_ID,
                 "default_thread_id": "evaluation",
                 "app_database_path": temporary_root / "app.db",
                 "checkpoint_database_path": temporary_root / "checkpoints.db",
@@ -267,23 +294,10 @@ def main() -> None:
 
         configure_observability(eval_settings)
 
-        todo_repository = TodoRepository(eval_settings.app_database_path)
-
-        note_repository = NoteRepository(eval_settings.app_database_path)
-
-        memory_repository = UserMemoryRepository(eval_settings.app_database_path)
-
         with open_sqlite_checkpointer(
             eval_settings.checkpoint_database_path
         ) as checkpointer:
-            graph = build_graph(
-                settings=eval_settings,
-                checkpointer=checkpointer,
-                todo_repository=(todo_repository),
-                note_repository=(note_repository),
-                memory_repository=(memory_repository),
-                owner_id=(eval_settings.owner_id),
-            )
+            graph = build_evaluation_graph(eval_settings, checkpointer)
 
             for case in cases:
                 result = evaluate_case(

@@ -27,7 +27,8 @@ The project follows [Semantic Versioning](https://semver.org/).
 - PostgreSQL and SQLAlchemy production repositories managed by Alembic migrations.
 - LangGraph PostgresSaver, Redis shared rate limiting and PostgreSQL advisory locks.
 - S3-compatible knowledge source storage, pgvector retrieval and Celery ingestion.
-- Administrator APIs and Streamlit views for users, entitlements, audit and usage.
+- Administrator APIs for users, entitlements, quotas, audit and usage, plus
+  Streamlit views for users, quotas, audit and usage.
 - Idempotent SQLite, Checkpoint and local knowledge migration tooling.
 - A production container stack for PostgreSQL/pgvector, Redis, MinIO, API,
   Celery Worker and Streamlit with dependency-aware health checks.
@@ -53,6 +54,16 @@ The project follows [Semantic Versioning](https://semver.org/).
 - User API keys are validated before storage and protected with AES-256-GCM; raw keys
   are never returned by the API, written to logs or stored in checkpoints.
 - Usage events exclude prompts, responses, secrets, prices and payment information.
+
+### Fixed
+
+- Updated Agent evaluation setup for the current ModelGateway and trusted
+  multi-user runtime context.
+- Staged RAG evaluation fixtures in user-scoped source directories so the
+  evaluator follows the same isolation contract as the application.
+- Aligned README and design, configuration, deployment and testing documents
+  with the current authentication, readiness, administration and production
+  runtime behavior.
 
 ## [1.0.0] - 2026-08-27
 

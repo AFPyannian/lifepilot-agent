@@ -64,9 +64,9 @@ flowchart LR
 
 ### 3.1 交互层
 
-`frontend/streamlit_app.py` 提供聊天、会话列表、知识库管理和审批交互。它不直接访问数据库或 Agent，而是统一通过 `LifePilotApiClient` 调用 FastAPI。
+`frontend/streamlit_app.py` 提供登录与邀请注册、聊天、会话、知识库、模型凭据、用量、审批和部分运营管理界面。它不直接访问数据库或 Agent，而是统一通过 `LifePilotApiClient` 调用 FastAPI。
 
-`app/main.py` 是独立的命令行入口，用于验证 Agent 核心能力。CLI 直接构建 graph，但仍复用相同的 Settings、日志、仓储和 Checkpointer。
+`app/main.py` 是仅面向 local profile 的开发入口。CLI 直接使用 SQLite、平台模型和 `LOCAL_CLI_OWNER_ID` 构建 graph，仍复用 Settings、日志、ModelGateway、AccessPolicy 和 Checkpointer；它不提供完整登录、BYOK 或删除审批界面。
 
 ### 3.2 API 层
 
@@ -85,12 +85,13 @@ API 按职责拆分：
 
 | 模块 | 职责 |
 | --- | --- |
-| `auth_routes.py` | 登录、当前用户、退出和修改密码 |
-| `admin_routes.py` | 管理员创建、查询和撤销注册邀请 |
+| `auth_routes.py` | 登录、注册状态、邀请码注册、当前用户、退出和修改密码 |
+| `admin_routes.py` | 管理用户、审计、全局用量、配额、能力授权和注册邀请 |
 | `routes.py` | 普通聊天、流式聊天、审批恢复 |
 | `conversation_routes.py` | 会话列表、详情、重命名和删除 |
 | `knowledge_routes.py` | 知识文档上传、列表和删除 |
 | `model_routes.py` | 用户模型访问状态及 DeepSeek Key 创建、轮换、撤销和删除 |
+| `usage_routes.py` | 当前用户模型用量汇总与事件列表 |
 | `health_routes.py` | 公开的存活与就绪检查 |
 | `streaming.py` | 将 LangGraph 输出转换成 SSE 事件 |
 | `execution.py` | 执行恢复和最终回答提取 |
@@ -123,7 +124,8 @@ ModelGateway 每次调用都重新解析凭据。`PLATFORM` 使用服务端 Secr
 
 在进入 Agent 和实际调用模型前，AccessPolicy 分别执行入口校验与网关二次校验。
 平台模式要求有效 `model.platform` 授权；BYOK 模式要求实例开关和当前用户的有效凭据。
-每次实际模型调用都会创建独立 usage event，并在成功或失败后完成状态流转。
+每次实际模型调用都会先预占月请求配额、创建独立 usage event，并在成功或失败后
+完成状态流转；成功响应返回 Token 元数据时再结算 Token 配额。
 
 ToolNode 执行模型选择的工具，并将 ToolMessage 返回给 assistant。数据库结果和工具错误都会转换成明确的工具输出，模型不能自行声称某个操作已经成功。
 
@@ -206,14 +208,13 @@ flowchart LR
 ## 7. 安全与稳定性边界
 
 - Pydantic Settings 在启动时校验必填密钥和关联配置。
-- SecretStr 避免密钥出现在对象表示中。
 - 密钥配置使用 SecretStr，配置对象表示不会暴露原始值。
 - 密码使用 Argon2id 哈希，登录签发可撤销的不透明 Session；数据库只保存令牌摘要。
 - 账号状态在每次认证时校验，禁用账号、修改密码或退出全部设备会撤销 Session。
 - 认证后的用户 UUID 由服务端注入所有业务数据访问路径。
 - 登录失败按 IP 与用户名摘要限流，业务请求按 Session 摘要限流。
 - 账号和主要写操作保存审计事件，不记录原始密码或 Session 令牌。
-- 注册默认关闭；邀请模式下，用户创建和邀请码消费使用同一个 `BEGIN IMMEDIATE` 事务。
+- 注册默认关闭；邀请模式下，用户创建和邀请码消费位于同一数据库事务，SQLite 使用 `BEGIN IMMEDIATE`，PostgreSQL 对邀请码行加锁。
 - 邀请码原文只返回一次，数据库只保存摘要；新用户角色由服务端固定为 `user`。
 - 用户 DeepSeek Key 先验证后使用 AES-256-GCM 加密，主密钥不进入数据库。
 - 凭据密文通过附加认证数据绑定用户、provider 和记录 ID，不能跨用户调换。
@@ -223,7 +224,8 @@ flowchart LR
 - LangGraph `recursion_limit` 防止异常工具循环无限执行。
 - 删除类工具在执行前进行人工审批。
 
-公开的 `/health` 只表示进程存活；`/ready` 还会检查 Agent graph 是否已经初始化。
+公开的 `/health` 只表示进程存活。`/ready` 在 local profile 检查 Agent graph；在
+production profile 还会探测业务 PostgreSQL、Checkpoint PostgreSQL、Redis 和对象存储。
 
 ## 8. 并发模型
 
